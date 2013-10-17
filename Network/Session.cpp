@@ -109,7 +109,7 @@ int CSession::Send(const char* pData, int dataSize)
 
     CMutexLock lock(m_writeMutex);
 
-    if (m_writeBuffer.ReadableBytes() >= MAX_SEND_LIST_SIZE)
+    if (m_writeBuffer.ReadableBytes() >= (unsigned)MAX_SEND_LIST_SIZE)
     {
         //不能清空发送队列，如果对方一个数据包只接收到了一部分，清空发送队列，可能导致包错位
         //只能等待发送队列变小

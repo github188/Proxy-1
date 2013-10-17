@@ -1,9 +1,12 @@
 
-#include <config/config.h>
-#include <pdebug.h>
-#include <Network/Network.h>
-#include "ProxyTaskDispatcher.h"
 #define VERSION "0.0.1"
+
+#include "../config/config.h"
+#include "../include/pdebug.h"
+#include "../Network/Network.h"
+#include "../Log/Log.h"
+#include "ProxyTaskDispatcher.h"
+#include "ReconnectThread.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,9 +20,9 @@ void InitConnections(CNetwork *pNet);
 
 int main(int argc, char* argv[])
 {
-	const struct proxyconfig* pcfg = cfg_get();
+	const struct ProxyConfig* pcfg = ConfigGet();
 	if(!pcfg) {
-		printf("read configure file(%s) failed.\n", CONFIG_FILE);
+		printf("Read config(%s) failed.\n", CONFIG_FILE);
 		exit(0);
 	}
 	
@@ -29,33 +32,28 @@ int main(int argc, char* argv[])
         printf("modID = %d\n", modID);
     }
 	
-	if (pcfg->enableMonitor) {
+	if (pcfg->system.enableMonitor) {
 		// Kise::Monitor::SetModuleID(modID);
 		// Kise::Monitor::MonitorLoop();
 	}
 	
-	sleep(3);
-
-	// Kise::Log::CLog::Instance().SetLogPath("./logpath");
-	// Kise::Log::CLog::Instance().SetMaxLogDayNum(7);
-    // printf("NetworkProxy log path = %s, log num = %d\n", logPath.c_str(), logNum);
+	Kise::Log::CLog::Instance().SetLogPath("./logpath");
+	Kise::Log::CLog::Instance().SetMaxLogDayNum(7);
 	
-	std::list<struct tcp_conn> brokenconns;
+	std::list<struct TCPConn> brokenconns;
 	pthread_mutex_t conns_lock;
 	pthread_mutex_init(&conns_lock, NULL);
 
 	CProxyTaskDispatcher taskDispatcher;
-	taskDispatcher.SetBrokenConns(&brokenconns);
+	taskDispatcher.SetBrokenConns(&brokenconns, &conns_lock);
 	taskDispatcher.Start();
 	CNetwork network(&taskDispatcher);
 
 	InitConnections( &network );
 	
-	/*
 	CReconnectThread reconnThread(network);
-	reconnThread.setBrokenConns(&brokenconns, conns_lock);
+	reconnThread.SetBrokenConns(&brokenconns, &conns_lock);
 	reconnThread.Start();
-	*/
 
 	network.Start();
 
@@ -70,9 +68,10 @@ int main(int argc, char* argv[])
 
 void InitConnections(CNetwork *pNet)
 {
-	const struct proxyconfig* pcfg = cfg_get();
-	std::vector<pxgroup>::const_iterator it;
-	for(it = pcfg->groups.begin(); it != pcfg->groups.end(); it++) {
+	const struct ProxyConfig* pcfg = ConfigGet();
+	PXGROUP::const_iterator it;
+	const PXGROUP &gp = pcfg->groups;
+	for(it = gp.begin(); it != gp.end(); it++) {
 		const PXCONNS &v1 = (*it).left;
 		const PXCONNS &v2 = (*it).right;
 		PXCONNS::const_iterator temp;
@@ -97,3 +96,4 @@ void InitConnections(CNetwork *pNet)
 	}
 
 }
+

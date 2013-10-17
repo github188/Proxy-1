@@ -10,7 +10,8 @@ INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 OBJS = main.o config.o ConfFile.o \
 	   AbstractThread.o Buffer.o jsiomodel.o \
 	   Network.o Session.o TaskDispatcher.o \
-	   ProxyTaskDispatcher.o Log.o dir.o file.o
+	   ProxyTaskDispatcher.o Log.o dir.o file.o \
+	   ReconnectThread.o
 
 TARGET =	NetworkProxy
 
@@ -22,6 +23,9 @@ clean:
 
 
 ##  compile 
+ReconnectThread.o :  $(SRCDIR)/proj/ReconnectThread.cpp $(SRCDIR)/proj/ReconnectThread.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
 config.o : $(SRCDIR)/config/config.cpp $(SRCDIR)/config/config.h $(SRCDIR)/config/ConfFile.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 

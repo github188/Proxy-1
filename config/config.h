@@ -7,36 +7,77 @@
 
 #define CONFIG_FILE "./config.ini"
 
-struct tcp_conn;  
-struct pxgroup; 
-struct proxyconfig;
+struct TCPConn;
+struct ProxyGroup; 
+struct ProxyConfig;
 
 enum TCP_MOD { CLIENT = 0, SERVER = 1 };
 enum CVT_RULE { RULE_EMPTY = 0 };
+enum GRP_SIDE {LEFTSIDE, RIGHTSIDE};
 
-/**
- * 接口： 获取以及设置配置
+/* ConfigGet
+ * 获取系统的配置项，返回的结构体中定义配置的内容
  */
-const struct proxyconfig *cfg_get();
-bool cfg_set(const struct proxyconfig *conf);
+const struct ProxyConfig *ConfigGet();
 
-struct tcp_conn {
-	enum TCP_MOD mod;
+/*
+ *
+ */
+bool ConfigSet(const struct ProxyConfig *conf);
+
+/* ConfigLookup
+ * 在系统的配置中查找某个网络连接的属性
+ * con: 要查询的连接
+ * groupid [out]: 返回所属的组ID
+ * side [out]: 返回该连接属于组的哪一边
+ */
+bool ConfigLookup(const struct TCPConn con, 
+		int &groupid, enum GRP_SIDE &side );
+
+/* TCPConn
+ * 表示配置文件中的一个网络配置项
+ * mod : 模式，作为客户端或者服务端
+ * ip & port : 地址和端口 
+ */
+struct TCPConn {
+	enum TCP_MOD mod; 
 	std::string ip;
 	unsigned short port;
 };
 
-typedef std::vector<struct tcp_conn> PXCONNS;
+inline bool TCPConnEq(const struct TCPConn &lhs,
+		const struct TCPConn &rhs)
+{
+	return ( lhs.mod == rhs.mod && 
+			lhs.ip == rhs.ip &&
+			lhs.port == rhs.port);
+}
 
-struct pxgroup {
+typedef std::vector<struct TCPConn> PXCONNS;
+
+/* ProxyGroup
+ * 代理中的一个组，每个组中的两边通过转化规则rule
+ * 交换数据
+ */
+struct ProxyGroup {
+	int id;
 	PXCONNS left;
 	PXCONNS right;
-	enum CVT_RULE cvt_rule;
+	enum CVT_RULE rule;
+};
+typedef std::vector<struct ProxyGroup> PXGROUP;
+
+/* CommonConfig
+ * 系统的普通配置项全部在这里定义
+ */
+struct CommonConfig {
+	bool enableMonitor;
 };
 
-struct proxyconfig {
-	bool enableMonitor;
-	std::vector<pxgroup> groups;
+struct ProxyConfig {
+	struct CommonConfig system;
+	PXGROUP groups;
 };
 
 #endif
+

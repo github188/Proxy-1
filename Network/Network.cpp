@@ -294,16 +294,17 @@ int CNetwork::ListenCallback(int servFd)
 
     if (clientFd > 0)
     {
-        printf("accept %s: %d , port = %d, ok!!!!!!!\n", inet_ntoa(ra.sin_addr), ra.sin_port, clientFd);
         CSession* pSession = new CSession(this);
         pSession->SetFd(clientFd);
         pSession->SetIP(inet_ntoa(ra.sin_addr));
-        pSession->SetPort(ra.sin_port);
+        pSession->SetPort(ntohs(ra.sin_port));
         pSession->SetListenPort(GetListenPort(servFd));
         pSession->SetState(NETWORK_STATE_CONNECTED);
         pSession->SetRole(NETWORK_ROLE_ACCEPT);
         pSession->SetType(NETWORK_TYPE_UNKNOWN);
         AddSession(pSession);
+        printf("accept ok, listen port=%d, peer host=%s,port = %d. \n", 
+				pSession->GetListenPort(), pSession->GetIP(), pSession->GetPort() );
 
         make_socket_nonblocking(clientFd);
 
