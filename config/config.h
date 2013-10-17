@@ -30,9 +30,10 @@ bool ConfigSet(const struct ProxyConfig *conf);
  * con: 要查询的连接
  * groupid [out]: 返回所属的组ID
  * side [out]: 返回该连接属于组的哪一边
+ * rule [out]: 
  */
-bool ConfigLookup(const struct TCPConn con, 
-		int &groupid, enum GRP_SIDE &side );
+bool ConfigLookup(const struct TCPConn &con, 
+		int *groupid, enum GRP_SIDE *side, enum CVT_RULE *rule );
 
 /* TCPConn
  * 表示配置文件中的一个网络配置项

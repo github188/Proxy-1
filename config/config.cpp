@@ -24,8 +24,8 @@ const struct ProxyConfig *ConfigGet()
 		return NULL;
 }
 
-bool ConfigLookup(const struct TCPConn con, 
-		int &groupid, enum GRP_SIDE &side )
+bool ConfigLookup(const struct TCPConn &con, 
+		int *groupid, enum GRP_SIDE *side, enum CVT_RULE *rule )
 {
 	if(!g_isconfgok) return false;
 
@@ -36,16 +36,18 @@ bool ConfigLookup(const struct TCPConn con,
 		const PXCONNS &p = (*it).left;
 		for(temp = p.begin(); temp != p.end(); temp++) {
 			if( TCPConnEq( con, *temp) ) {
-				groupid = (*it).id;
-				side = LEFTSIDE;
+				if(groupid) *groupid = (*it).id;
+				if(side) *side = LEFTSIDE;
+				if(rule) *rule = (*it).rule;
 				return true;
 			}
 		}
 		const PXCONNS &p2 = (*it).left;
 		for(temp = p2.begin(); temp != p2.end(); temp++) {
 			if( TCPConnEq( con, *temp) ) {
-				groupid = (*it).id;
-				side = RIGHTSIDE;
+				if(groupid) *groupid = (*it).id;
+				if(side) *side = RIGHTSIDE;
+				if(rule) *rule = (*it).rule;
 				return true;
 			}
 		}

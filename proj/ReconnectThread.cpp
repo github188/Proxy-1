@@ -1,5 +1,6 @@
 
 #include "ReconnectThread.h"
+#include <unistd.h>
 
 CReconnectThread::CReconnectThread(CNetwork& network)
 	: m_bStop(false)

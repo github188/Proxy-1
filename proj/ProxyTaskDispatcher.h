@@ -7,6 +7,10 @@
 
 #include <list>
 
+/* struct SessionGroup: 会话组
+ * 每一个会话组有左右两个会话连表
+ * 两个连表通过规则rule交换数据
+ */
 struct SessionGroup {
 	int id;
 	enum CVT_RULE rule;
@@ -14,6 +18,9 @@ struct SessionGroup {
 	std::list<CSession*> right;
 };
 
+/* CProxyTaskDispatcher: 代理的网络分发类
+ * 封装的是网络模块的回调函数,处理网络事件和数据
+ */
 class CProxyTaskDispatcher: public CTaskDispatcher
 {
 	public:
@@ -31,6 +38,8 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		virtual void Run(){}
 	private:
 		void InitSessionGroups(void);
+
+		struct TCPConn CreateConnBySession(CSession *psession);
 	private:
 		std::list<SessionGroup> m_groups;
 		pthread_mutex_t m_session_lock;
