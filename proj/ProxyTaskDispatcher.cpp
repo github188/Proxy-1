@@ -1,6 +1,6 @@
 
 #include "ProxyTaskDispatcher.h"
-
+#include "Convert.h"
 CProxyTaskDispatcher::CProxyTaskDispatcher()
 {
 	pthread_mutex_init(&m_session_lock, NULL);
@@ -23,10 +23,12 @@ int CProxyTaskDispatcher::Dispatch( CSession* psession, const char* pData, int d
 	enum GRP_SIDE side;
 	enum CVT_RULE rule;
 	if( ConfigLookup(con, &groupid, &side, &rule) ) {
-		// Convert(psession, pData, dataSize);
-		// Send();
+		const char *pret; int retsize = 0;
+		if(Convert(rule, pData, dataSize, pret, retsize)) {
+			SendResultToOtherSide(groupid, side, pret, retsize);
+		}
 	} else {
-
+		printf("Error: data from unconfiged session.\n");
 	}
 
 	return 1;
@@ -167,5 +169,32 @@ struct TCPConn CProxyTaskDispatcher::CreateConnBySession(CSession *psession) {
 	}
 
 	return con;
+}
+
+/* SendResultToOtherSide: 将数据发送给另一边
+ * gpid ：发送者所属的会话组
+ * side : 发送者在会话组的边（LEFTSIDE/RIGHTSIDE）
+ * data, size: 要发送的数据及长度
+ */
+void CProxyTaskDispatcher::SendResultToOtherSide(
+		int gpid, enum GRP_SIDE side, 
+		const char *data, int size)
+{
+	pthread_mutex_lock(&m_session_lock);
+
+	std::list<SessionGroup>::iterator it;
+	for(it = m_groups.begin(); it != m_groups.end(); it++) {
+		if((*it).id == gpid) {
+			std::list<CSession*>::iterator temp;
+			std::list<CSession*> &ll =
+				( side == LEFTSIDE ? (*it).right : (*it).left );
+			for(temp = ll.begin(); temp != ll.end(); temp++) {
+				if( (*temp) )
+					(*temp)->Send(data, size);
+			}
+		}
+	}
+
+	pthread_mutex_unlock(&m_session_lock);
 }
 

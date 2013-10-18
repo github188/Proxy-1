@@ -40,6 +40,8 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		void InitSessionGroups(void);
 
 		struct TCPConn CreateConnBySession(CSession *psession);
+		void SendResultToOtherSide(int gpid, enum GRP_SIDE side,
+				const char *data, int size);
 	private:
 		std::list<SessionGroup> m_groups;
 		pthread_mutex_t m_session_lock;
