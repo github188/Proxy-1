@@ -12,7 +12,7 @@ void CReconnectThread::Run()
 {
     m_bStop = false;
 	while (!m_bStop) {
-		printf("Start reconnect ... \n");
+		//printf("Start reconnect ... \n");
 		pthread_mutex_lock(m_conns_lock);
 		std::list<struct TCPConn>::iterator it = m_pConns->begin();
 		while( it != m_pConns->end() ) {

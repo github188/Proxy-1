@@ -49,9 +49,13 @@ struct TCPConn {
 inline bool TCPConnEq(const struct TCPConn &lhs,
 		const struct TCPConn &rhs)
 {
-	return ( lhs.mod == rhs.mod && 
-			lhs.ip == rhs.ip &&
-			lhs.port == rhs.port);
+	if(lhs.mod == rhs.mod) {
+		if(lhs.mod == CLIENT)
+			return (lhs.ip == rhs.ip && lhs.port == rhs.port);
+		else if(lhs.mod == SERVER)
+			return (lhs.port == rhs.port);
+	}
+	return false;
 }
 
 typedef std::vector<struct TCPConn> PXCONNS;

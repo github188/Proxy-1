@@ -287,10 +287,6 @@ void CSession::DispatchPacket(const char* pData, int packetLen)
 void CSession::Shutdown()
 {
     SetState(NETWORK_STATE_UNCONNECTED);
-    /*
-	SetRole(NETWORK_ROLE_UNKNOWN);
-    SetType(NETWORK_TYPE_UNKNOWN);
-	*/
 
     if (m_network->GetIOMode() != NULL)
     {

@@ -110,8 +110,11 @@ void CProxyTaskDispatcher::AddSessionIntoGroup(
 				}
 			}
 		}
+		printf("New session, add in group %d, %s.\n",
+				groupid, side == LEFTSIDE?"LEFT":"RIGHT");
 	} else {
-		printf("Session not configed!!\n");
+		printf("Session not configed, ip = %s, port=%u, mode=%s\n",
+				con.ip.c_str(), con.port, con.mod == CLIENT?"CLIENT":"SERVER");
 	}
 	pthread_mutex_unlock(&m_session_lock);
 }
@@ -133,6 +136,7 @@ void CProxyTaskDispatcher::RemoveSessionInGroup(CSession *psession)
 				ll.erase(temp);
 				printf("Erase session in : groupid=%d, side=%s\n",
 						(*it).id, "LEFT");
+				pthread_mutex_unlock(&m_session_lock);
 				return;
 			}
 		}
@@ -142,11 +146,12 @@ void CProxyTaskDispatcher::RemoveSessionInGroup(CSession *psession)
 				lr.erase(temp);
 				printf("Erase session in : groupid=%d, side=%s\n",
 						(*it).id, "RIGHT");
+				pthread_mutex_unlock(&m_session_lock);
 				return;
 			}
 		}
 	}
-
+	printf("RemoveSessionInGroup, session havn't store yet.\n");
 	pthread_mutex_unlock(&m_session_lock);
 }
 

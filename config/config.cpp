@@ -42,7 +42,7 @@ bool ConfigLookup(const struct TCPConn &con,
 				return true;
 			}
 		}
-		const PXCONNS &p2 = (*it).left;
+		const PXCONNS &p2 = (*it).right;
 		for(temp = p2.begin(); temp != p2.end(); temp++) {
 			if( TCPConnEq( con, *temp) ) {
 				if(groupid) *groupid = (*it).id;
