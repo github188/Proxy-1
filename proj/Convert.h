@@ -25,6 +25,10 @@ inline int Convert(enum CVT_RULE rule,
 		const char *&result, int &retsize) 
 {
 	switch(rule) {
+#ifdef CONVERT_ZJ
+		case RULE_ZJ:
+			break;
+#endif
 		case RULE_EMPTY:
 		default:
 			return Convert_empty(srcdata, size, result, retsize);
