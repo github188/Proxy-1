@@ -1,6 +1,7 @@
 
 #include "config.h"
 #include "ConfFile.h"
+#include "../proj/Convert.h"
 #include <pdebug.h>
 
 #include <stdio.h>

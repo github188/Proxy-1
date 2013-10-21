@@ -2,6 +2,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "../include/constant.h"
 #include <string>
 #include <vector>
 
@@ -12,16 +13,6 @@ struct ProxyGroup;
 struct ProxyConfig;
 
 enum TCP_MOD { CLIENT = 0, SERVER = 1 };
-enum CVT_RULE {
-	RULE_EMPTY = 0 
-#ifdef CONVERT_ZJ
-		, RULE_ZJ = 1
-#endif 
-#ifdef CONVERT_SF
-		, RULE_SF = 2
-#endif
-};
-
 enum GRP_SIDE {LEFTSIDE, RIGHTSIDE};
 
 /* ConfigGet

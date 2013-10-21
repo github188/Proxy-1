@@ -20,20 +20,9 @@ inline int Convert_empty(const char *srcdata, int size,
  * srcdata, size: 源数据的内容和长度
  * result, retsize [out] : 转换后的数据内容和长度
  */
-inline int Convert(enum CVT_RULE rule, 
+int Convert(enum CVT_RULE rule, 
 		const char *srcdata, int size, 
-		const char *&result, int &retsize) 
-{
-	switch(rule) {
-#ifdef CONVERT_ZJ
-		case RULE_ZJ:
-			break;
-#endif
-		case RULE_EMPTY:
-		default:
-			return Convert_empty(srcdata, size, result, retsize);
-	}
-}
+		const char *&result, int &retsize);
 
 #endif //end of CONVERT_H
 

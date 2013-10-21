@@ -11,7 +11,7 @@ OBJS = main.o config.o ConfFile.o \
 	   AbstractThread.o Buffer.o jsiomodel.o \
 	   Network.o Session.o TaskDispatcher.o \
 	   ProxyTaskDispatcher.o Log.o dir.o file.o \
-	   ReconnectThread.o
+	   ReconnectThread.o Convert.o
 
 TARGET =	NetworkProxy
 
@@ -23,6 +23,9 @@ clean:
 
 
 ##  compile 
+Convert.o : $(SRCDIR)/proj/Convert.cpp $(SRCDIR)/proj/Convert.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
 ReconnectThread.o :  $(SRCDIR)/proj/ReconnectThread.cpp $(SRCDIR)/proj/ReconnectThread.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 

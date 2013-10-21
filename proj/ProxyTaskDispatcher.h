@@ -4,7 +4,7 @@
 
 #include "../Network/TaskDispatcher.h"
 #include "../config/config.h"
-
+#include "Convert.h"
 #include <list>
 
 /* struct SessionGroup: 会话组
