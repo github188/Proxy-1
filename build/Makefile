@@ -4,14 +4,22 @@ SRCDIR = ..
 CXX = g++
 LINK = g++
 CXXFLAGS = -g -Wall -DKISE_DEBUG
-LIBS = -lpthread 
+LIBS = -lpthread -lsqlite3
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
+
+BackupOBJS = BackupModule.o BackupUtils.o \
+			 ClearDirThread.o Database.o DataCache.o \
+			 DBIOThread.o ResumeTransfer.o \
+			 RotationBackup.o RotationFullBackup.o \
+			 timeclass.o stltool.o
 
 OBJS = main.o config.o ConfFile.o \
 	   AbstractThread.o Buffer.o jsiomodel.o \
 	   Network.o Session.o TaskDispatcher.o \
 	   ProxyTaskDispatcher.o Log.o dir.o file.o \
 	   ReconnectThread.o Convert.o
+
+OBJS += $(BackupOBJS)
 
 CVT_RULE += -DCONVERT_ZJ
 CXXFLAGS += $(CVT_RULE)
@@ -27,6 +35,12 @@ clean:
 
 
 ##  compile 
+timeclass.o : $(SRCDIR)/Tool/timeclass.cpp $(SRCDIR)/Tool/timeclass.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+stltool.o : $(SRCDIR)/Tool/stltool.cpp $(SRCDIR)/Tool/stltool.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
 Convert_zj.o : $(SRCDIR)/proj/Convert_zj.cpp
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 
@@ -76,20 +90,34 @@ dir.o: $(SRCDIR)/Tool/dir.cpp $(SRCDIR)/Tool/dir.h
 file.o: $(SRCDIR)/Tool/file.cpp $(SRCDIR)/Tool/file.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 	
-package.o: package.cpp package.h
+#### Backup module --------------------##
+
+BackupModule.o : $(SRCDIR)/Backup/BackupModule.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
-	
-MsgQueue.o: MsgQueue.cpp MsgQueue.h
+
+BackupUtils.o : $(SRCDIR)/Backup/BackupUtils.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
-	
-	
-tools.o: Tool/tools.cpp Tool/tools.h
+
+ClearDirThread.o : $(SRCDIR)/Backup/ClearDirThread.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
-	
-	
-CoreDump.o: CoreDump/CoreDump.cpp CoreDump/CoreDump.h
+
+Database.o : $(SRCDIR)/Backup/Database.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
-	
-	
-Heartbeat.o: Heartbeat.cpp Heartbeat.h
+
+DataCache.o : $(SRCDIR)/Backup/DataCache.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+DBIOThread.o : $(SRCDIR)/Backup/DBIOThread.cpp 
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+ResumeTransfer.o : $(SRCDIR)/Backup/ResumeTransfer.cpp 
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+RotationBackup.o : $(SRCDIR)/Backup/RotationBackup.cpp 
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+RotationFullBackup.o : $(SRCDIR)/Backup/RotationFullBackup.cpp 
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+### Backup module end -----------------##
+

@@ -15,9 +15,8 @@ typedef struct {
 	bool overspeed; // 是否是超速的数据
 } DataSt4ZJ;
 
-
 static bool CreateDataSt4ZJ(const char* pData, int dataSize, DataSt4ZJ& item);
-static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize, CSession *psession);
+static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize);
 static int CreateResultPkg(
 		DataSt4ZJ& st1, DataSt4ZJ& st2, const char *&ret, int &retsize);
 static bool cmp2st(const DataSt4ZJ& st1, const DataSt4ZJ& st2);
@@ -28,6 +27,7 @@ static bool cmp2st(const DataSt4ZJ& st1, const DataSt4ZJ& st2);
  * 1. 判断数据包，如果不是车辆信息包则直接转发
  * 2. 如果是车辆信息包但是没有超速也直接转发 
  * 3. 如果是超速数据，则将超速相机与治安卡口数据关联生成包
+ * 4. 考虑备份，应该先回应发送者一个包ID
  */
 int Convert_zj(const char *srcdata, int size, 
 		const char *&ret, int &retsize, CSession *psession)
@@ -39,7 +39,8 @@ int Convert_zj(const char *srcdata, int size,
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
 		if( size< 112 ) { 
-			printf("Error! dataSize is too small (%d) \n", size);
+			PDEBUG("TODO! Check whether this is an ack.\n");
+			// DealResponseACK();
 			return 0;
 		}
 		int speed = 0, limitSpeed = 0;
@@ -52,8 +53,10 @@ int Convert_zj(const char *srcdata, int size,
 		} else {
 			DataSt4ZJ st;
 			st.speed = speed;
-			if( CreateDataSt4ZJ(srcdata, size, st) )
-				return DealWithSt4ZJ(st, ret, retsize, psession);
+			if( CreateDataSt4ZJ(srcdata, size, st) ) {
+				// ResponsePackID(st, psession);
+				return DealWithSt4ZJ(st, ret, retsize);
+			} 
 		}
 	}
 	return 0;
@@ -65,17 +68,17 @@ int Convert_zj(const char *srcdata, int size,
  * 3. 在函数结束前处理一次超时的数据, 
  *    将一条超时的数据返回给调用层用于发送
  */
-static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize, CSession *psession)
+static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
 {
 	static list<DataSt4ZJ> pkgs; 
 	bool find = false; int r = 0;
 
 	for(list<DataSt4ZJ>::iterator it = pkgs.begin(); 
-			it != pkgs.end(); it++){
+			it != pkgs.end(); it++) {
 		if( cmp2st(st,(*it)) ) {
 			r = CreateResultPkg(*it, st, ret, retsize);
 			find = true;
-			delete [] (*it).data; // 删除容器中匹配上的数据
+			delete [] (*it).data; 
 			pkgs.erase(it);
 			break;
 		}
@@ -88,15 +91,12 @@ static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize, CSession
 	
 	time_t now = time(NULL);
 	for(list<DataSt4ZJ>::iterator it = pkgs.begin(); 
-			it != pkgs.end(); it++)
-	{
+			it != pkgs.end(); it++) {
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
-		if( abs( now - (*it).timercv ) > 5 ) 
-		{
-			printf("Drop one packge .....\n");
+		if( abs( now - (*it).timercv ) > 5 )  {
 			delete [] (*it).data;
 			pkgs.erase(it);
-			it = pkgs.begin(); 
+			break;
 		}
 	}
 
