@@ -18,6 +18,12 @@
 
 void InitConnections(CNetwork *pNet);
 
+/** main : 程序主入口
+ *  1. 读取配置文件中设置的每一组需要转换的端(TCPConn)
+ *  2. 初始化所有连接并分好边
+ *  3. 启动TaskDispatcher处理网络数据
+ *  4. 另外，在这里创建需要重连的连接链表及其操作用到的锁
+ */
 int main(int argc, char* argv[])
 {
 	const struct ProxyConfig* pcfg = ConfigGet();

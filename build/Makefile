@@ -13,6 +13,10 @@ OBJS = main.o config.o ConfFile.o \
 	   ProxyTaskDispatcher.o Log.o dir.o file.o \
 	   ReconnectThread.o Convert.o
 
+CVT_RULE += -DCONVERT_ZJ
+CXXFLAGS += $(CVT_RULE)
+OBJS += Convert_zj.o
+
 TARGET =	NetworkProxy
 
 $(TARGET):	$(OBJS)
@@ -23,6 +27,9 @@ clean:
 
 
 ##  compile 
+Convert_zj.o : $(SRCDIR)/proj/Convert_zj.cpp
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
 Convert.o : $(SRCDIR)/proj/Convert.cpp $(SRCDIR)/proj/Convert.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 

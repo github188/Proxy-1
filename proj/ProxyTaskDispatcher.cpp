@@ -24,7 +24,7 @@ int CProxyTaskDispatcher::Dispatch( CSession* psession, const char* pData, int d
 	enum CVT_RULE rule;
 	if( ConfigLookup(con, &groupid, &side, &rule) ) {
 		const char *pret; int retsize = 0;
-		if(Convert(rule, pData, dataSize, pret, retsize)) {
+		if(Convert(rule, pData, dataSize, pret, retsize, psession)) {
 			SendResultToOtherSide(groupid, side, pret, retsize);
 		}
 	} else {
@@ -66,6 +66,8 @@ void CProxyTaskDispatcher::EventCallBack(
 
 /**
  * 根据配置中的组的数目来创建本类中的组
+ * 在配置中主要配置每一组转换两边的端点ip port和模式
+ * 在本类中对于每个连接要加入CSession成员
  */
 void CProxyTaskDispatcher::InitSessionGroups()
 {
@@ -80,6 +82,11 @@ void CProxyTaskDispatcher::InitSessionGroups()
 	}
 }
 
+/**
+ * 将一个连接加入需要重连的列表中
+ * 列表是外部设置的，外部维护重连线程来进行相关的重连工作
+ *
+ */
 void CProxyTaskDispatcher::AddIntoBrokens(struct TCPConn con)
 {
 	pthread_mutex_lock(m_conns_lock);
@@ -157,6 +164,9 @@ void CProxyTaskDispatcher::RemoveSessionInGroup(CSession *psession)
 	pthread_mutex_unlock(&m_session_lock);
 }
 
+/** 
+ * 根据一个CSession类的对象，构建一个TCPConn的对象
+ */
 struct TCPConn CProxyTaskDispatcher::CreateConnBySession(CSession *psession) {
 	TCPConn con;
 	con.mod = (psession->GetRole() == NETWORK_ROLE_CLIENT ? CLIENT : SERVER);
@@ -171,7 +181,8 @@ struct TCPConn CProxyTaskDispatcher::CreateConnBySession(CSession *psession) {
 	return con;
 }
 
-/* SendResultToOtherSide: 将数据发送给另一边
+/**
+ * SendResultToOtherSide: 将数据发送给另一边
  * gpid ：发送者所属的会话组
  * side : 发送者在会话组的边（LEFTSIDE/RIGHTSIDE）
  * data, size: 要发送的数据及长度
