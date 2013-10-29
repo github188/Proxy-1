@@ -25,7 +25,8 @@ inline int Convert_empty(const char *srcdata, int size,
  */
 int Convert(enum CVT_RULE rule, 
 		const char *srcdata, int size, 
-		const char *&result, int &retsize, CSession* psession);
+		const char *&result, int &retsize, 
+		CSession* psession, struct TCPConn con);
 
 #endif //end of CONVERT_H
 

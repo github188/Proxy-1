@@ -17,6 +17,8 @@ void CReconnectThread::Run()
 		std::list<struct TCPConn>::iterator it = m_pConns->begin();
 		while( it != m_pConns->end() ) {
 			if( (*it).mod == CLIENT ) {
+				printf("Reconnect, ip = %s, port = %u\n",
+						(*it).ip.c_str(), (*it).port );
 				m_network.Client((*it).ip.c_str(), (*it).port);
 				it = m_pConns->erase(it);
 			} else {

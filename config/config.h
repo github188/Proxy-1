@@ -15,14 +15,10 @@ struct ProxyConfig;
 enum TCP_MOD { CLIENT = 0, SERVER = 1 };
 enum GRP_SIDE {LEFTSIDE, RIGHTSIDE};
 
-/* ConfigGet
- * 获取系统的配置项，返回的结构体中定义配置的内容
+/* ConfigGet & ConfigSet
+ * 获取与设置系统的配置项
  */
 const struct ProxyConfig *ConfigGet();
-
-/*
- *
- */
 bool ConfigSet(const struct ProxyConfig *conf);
 
 /* ConfigLookup
@@ -45,7 +41,12 @@ struct TCPConn {
 	std::string ip;
 	unsigned short port;
 };
+typedef std::vector<struct TCPConn> PXCONNS;
 
+/* TCPConnEq : 判断两个网络配置是否一样 
+ * 相等的规则是: 模式一致，在客户端模式下 ip和port必须一样
+ * 在服务器模式下监听端口port必须一样
+ */
 inline bool TCPConnEq(const struct TCPConn &lhs,
 		const struct TCPConn &rhs)
 {
@@ -58,11 +59,11 @@ inline bool TCPConnEq(const struct TCPConn &lhs,
 	return false;
 }
 
-typedef std::vector<struct TCPConn> PXCONNS;
 
 /* ProxyGroup
- * 代理中的一个组，每个组中的两边通过转化规则rule
- * 交换数据
+ * 代理中的一个组，每个组有两边
+ * 每一边可能有N个连接
+ * 两边通过转化规则rule交换数据
  */
 struct ProxyGroup {
 	int id;
@@ -72,15 +73,22 @@ struct ProxyGroup {
 };
 typedef std::vector<struct ProxyGroup> PXGROUP;
 
-/* CommonConfig
- * 系统的普通配置项全部在这里定义
- */
-struct CommonConfig {
-	bool enableMonitor;
+/* BackupConfig : 备份需要用到的配置 */
+struct BackupConfig {
+	int max_backup_num;     // 最大备份记录条数
+	std::string backup_dir; // 备份路径
+	int backup_group_id;    // 备份的组
+	enum GRP_SIDE backup_sendto_side; // 数据应该发给哪一边?
+};
+
+struct SystemControlConfig{
+	bool enable_monitor;
+	bool enable_backup;
 };
 
 struct ProxyConfig {
-	struct CommonConfig system;
+	struct SystemControlConfig control;
+	struct BackupConfig *backup;
 	PXGROUP groups;
 };
 

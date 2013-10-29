@@ -29,6 +29,8 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		virtual int Dispatch(CSession* pSession, const char* pData, int dataSize);
 		virtual void EventCallBack(CSession* pSession, short event);
 
+		void SendResultToOtherSide(const struct TCPConn &con, const char *data, int size);
+
 		void SetBrokenConns(std::list<struct TCPConn> *pconns,
 				pthread_mutex_t *lock) {
 			m_pbrokens = pconns;
@@ -53,6 +55,7 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		std::list<struct TCPConn> *m_pbrokens;
 		pthread_mutex_t *m_conns_lock;
 		void AddIntoBrokens(struct TCPConn con);
+		void RemoveFromBrokens(const struct TCPConn &con);
 };
 
 

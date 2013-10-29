@@ -8,6 +8,11 @@
 #include "ProxyTaskDispatcher.h"
 #include "ReconnectThread.h"
 
+#ifdef WITH_BACKUP
+#include "../Backup/BackupModule.h"
+struct CBackupModule *g_pbackup = NULL;
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -15,6 +20,10 @@
 #include <list>
 
 #define CONFIG_PATH "./"
+
+#include "backup.h"
+
+class CProxyTaskDispatcher *g_dispatcher = NULL;
 
 void InitConnections(CNetwork *pNet);
 
@@ -38,9 +47,13 @@ int main(int argc, char* argv[])
         printf("modID = %d\n", modID);
     }
 	
-	if (pcfg->system.enableMonitor) {
+	if (pcfg->control.enable_monitor) {
 		// Kise::Monitor::SetModuleID(modID);
 		// Kise::Monitor::MonitorLoop();
+	}
+
+	if ( pcfg->control.enable_backup ) {
+		backup_init();
 	}
 	
 	Kise::Log::CLog::Instance().SetLogPath("./logpath");
@@ -50,10 +63,10 @@ int main(int argc, char* argv[])
 	pthread_mutex_t conns_lock;
 	pthread_mutex_init(&conns_lock, NULL);
 
-	CProxyTaskDispatcher taskDispatcher;
-	taskDispatcher.SetBrokenConns(&brokenconns, &conns_lock);
-	taskDispatcher.Start();
-	CNetwork network(&taskDispatcher);
+	g_dispatcher = new CProxyTaskDispatcher;
+	g_dispatcher->SetBrokenConns(&brokenconns, &conns_lock);
+	g_dispatcher->Start();
+	CNetwork network(g_dispatcher);
 
 	InitConnections( &network );
 	

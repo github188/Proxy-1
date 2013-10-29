@@ -1,9 +1,14 @@
 
 #include "Convert.h"
+#include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
+#include "backup.h"
 
-#include<arpa/inet.h>
-#include<stdlib.h>
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <pthread.h>
+
+extern CProxyTaskDispatcher *g_dispatcher;
 
 typedef struct {
 	int len;  	// data的长度
@@ -13,24 +18,46 @@ typedef struct {
 	time_t timercv; // 接收到该包的时刻
 	time_t time;    // 该包中时间字段的值
 	bool overspeed; // 是否是超速的数据
+	
+	struct TCPConn from;
 } DataSt4ZJ;
+
+inline void ResponsePackID(const char *data, CSession *psession)
+{
+	char pkg[72];
+	memset(pkg,0, 72);
+	*( (short*)(pkg + 2) ) = htons(1000);
+	*( (int *) (pkg + 4) ) = htonl(64);
+	memcpy(pkg+8, data+112, 64);
+	psession->Send( pkg, 72);
+}
+
+inline void SendOneStOut(const DataSt4ZJ &st) 
+{
+	if(g_dispatcher)
+		g_dispatcher->SendResultToOtherSide(st.from, st.data, st.len);
+	else
+		PDEBUG("Error, send data but g_dispatcher is NULL");
+}
 
 static bool CreateDataSt4ZJ(const char* pData, int dataSize, DataSt4ZJ& item);
 static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize);
-static int CreateResultPkg(
-		DataSt4ZJ& st1, DataSt4ZJ& st2, const char *&ret, int &retsize);
+static int CreateResultPkg(const DataSt4ZJ& st1, const DataSt4ZJ& st2, 
+		const char *&ret, int &retsize);
 static bool cmp2st(const DataSt4ZJ& st1, const DataSt4ZJ& st2);
 
 /**
  * 中江的转换规则
- * TODO ！！！好多地方写死的代码！！！
+ * TODO ！！！硬编码
  * 1. 判断数据包，如果不是车辆信息包则直接转发
  * 2. 如果是车辆信息包但是没有超速也直接转发 
  * 3. 如果是超速数据，则将超速相机与治安卡口数据关联生成包
- * 4. 考虑备份，应该先回应发送者一个包ID
+ * 4. 考虑备份，应该先回应数据来源一个包ID
+ * 5. 特别的，如果是一个车辆信息回应包，一要删除本程序中的备份数据
+ *    二要将这个ACK包回应给数据来源
  */
 int Convert_zj(const char *srcdata, int size, 
-		const char *&ret, int &retsize, CSession *psession)
+		const char *&ret, int &retsize, CSession *psession, struct TCPConn con)
 {
 	int type = 0;
 	type = ntohl( *( (int*)srcdata ) ) & 0x0fffffff;
@@ -38,10 +65,10 @@ int Convert_zj(const char *srcdata, int size,
 	if( type != 1000 ) {
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
-		if( size< 112 ) { 
-			PDEBUG("TODO! Check whether this is an ack.\n");
-			// DealResponseACK();
-			return 0;
+		if( size < 176 ) { 
+			PDEBUG("Here we get an ack, it's %s\n", srcdata+8);
+			backup_remove(srcdata + 8);
+			return Convert_empty(srcdata, size, ret, retsize);
 		}
 		int speed = 0, limitSpeed = 0;
 		speed = ntohl( *( (int*)(srcdata + 104) ) );
@@ -51,10 +78,11 @@ int Convert_zj(const char *srcdata, int size,
 		if( speed <= limitSpeed ) {
 			return Convert_empty(srcdata, size, ret, retsize);
 		} else {
-			DataSt4ZJ st;
+			DataSt4ZJ st; st.from = con;
 			st.speed = speed;
+			/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
 			if( CreateDataSt4ZJ(srcdata, size, st) ) {
-				// ResponsePackID(st, psession);
+				ResponsePackID(srcdata, psession);
 				return DealWithSt4ZJ(st, ret, retsize);
 			} 
 		}
@@ -62,47 +90,57 @@ int Convert_zj(const char *srcdata, int size,
 	return 0;
 }
 
+
 /* DealWithSt4ZJ : 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
  * 2. 如果匹配不上则将传入的包缓存起来
  * 3. 在函数结束前处理一次超时的数据, 
  *    将一条超时的数据返回给调用层用于发送
  */
+static list<DataSt4ZJ> cache_pkgs_list; 
+static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
 static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
 {
-	static list<DataSt4ZJ> pkgs; 
 	bool find = false; int r = 0;
+	pthread_mutex_lock(&cache_pkgs_lock);
 
-	for(list<DataSt4ZJ>::iterator it = pkgs.begin(); 
-			it != pkgs.end(); it++) {
+	for(list<DataSt4ZJ>::iterator it = cache_pkgs_list.begin(); 
+			it != cache_pkgs_list.end(); it++) {
 		if( cmp2st(st,(*it)) ) {
 			r = CreateResultPkg(*it, st, ret, retsize);
 			find = true;
 			delete [] (*it).data; 
-			pkgs.erase(it);
+			cache_pkgs_list.erase(it);
 			break;
 		}
 	}
+	pthread_mutex_unlock(&cache_pkgs_lock);
 
-	if(find)  
+	if(find) { 
 		delete [] st.data;
-	else 
-		pkgs.push_back(st);
-	
-	time_t now = time(NULL);
-	for(list<DataSt4ZJ>::iterator it = pkgs.begin(); 
-			it != pkgs.end(); it++) {
-		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
-		if( abs( now - (*it).timercv ) > 5 )  {
-			delete [] (*it).data;
-			pkgs.erase(it);
-			break;
-		}
-	}
+		return r;
+	} else { 
+		pthread_mutex_lock(&cache_pkgs_lock);
+		cache_pkgs_list.push_back(st);
 
-	PDEBUG( "Size of list is: %d \n",pkgs.size() );
-	return r;
+		time_t now = time(NULL);
+		for(list<DataSt4ZJ>::iterator it = cache_pkgs_list.begin(); 
+				it != cache_pkgs_list.end(); it++) {
+			PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
+			if( abs( now - (*it).timercv ) > 8 )  {
+				PDEBUG("Now should send an cached package.\n");
+				SendOneStOut(*it);
+				delete [] (*it).data;
+				it = cache_pkgs_list.erase(it);
+			}
+		}
+
+		PDEBUG( "Size of list is: %d \n",cache_pkgs_list.size() );
+		pthread_mutex_unlock(&cache_pkgs_lock);
+		return 0;
+	}
 }
+
 
 /* cmp2st 比较两个结构提是否匹配
  * 匹配条件:
@@ -124,14 +162,14 @@ static bool cmp2st(const DataSt4ZJ& st1, const DataSt4ZJ& st2)
  * ret: 封装后的数据，内部动态分配的存储
  * retsize: ret中数据的长度
  * RETURN:  等于retsize
+ * TODO 如果开启了备份，则把数据放入备份模块
  */
-static char *finalData = NULL;
 static int CreateResultPkg(
-		DataSt4ZJ& st1, DataSt4ZJ& st2, const char *&ret, int &retsize)
+		const DataSt4ZJ& st1, const DataSt4ZJ& st2, const char *&ret, int &retsize)
 {
 	PDEBUG("CreateResultPkg ... \n");
-	DataSt4ZJ* pOverspeed = NULL;
-	DataSt4ZJ* pCommon = NULL;
+	const DataSt4ZJ* pOverspeed = NULL;
+	const DataSt4ZJ* pCommon = NULL;
 	if( st1.overspeed ) {
 		pOverspeed = &st1;
 		pCommon = &st2;
@@ -144,8 +182,7 @@ static int CreateResultPkg(
 
 	// 最终数据的长度等于： 超速数据包的长度 + 卡口数据图片相关固定长度18 + 卡口图片长度
 	int finalLen = pOverspeed->len + 18 + commonImgLen;
-	if(finalData) delete [] finalData;
-	finalData = new char[finalLen];
+	char *finalData = new char[finalLen];
 	
    	// 前半部分跟超速数据一样
 	memcpy(finalData, pOverspeed->data, pOverspeed->len);// 超速数据包长度
@@ -160,9 +197,11 @@ static int CreateResultPkg(
 
 	*( (short*)(finalData + 176) ) = htons(  ntohs( *(short*)(finalData + 176) ) + 1); 
 	*( (int*)(finalData + 4) ) = htonl( finalLen - 8 );  // 修改协议包中的L字段
+	*( (int*)(finalData + 8) ) = htonl(1); // 卡口加超速数据
 	ret = finalData;
 	retsize = finalLen;
 	return retsize;
+
 }
 
 /**

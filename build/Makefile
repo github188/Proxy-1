@@ -4,7 +4,7 @@ SRCDIR = ..
 CXX = g++
 LINK = g++
 CXXFLAGS = -g -Wall -DKISE_DEBUG
-LIBS = -lpthread -lsqlite3
+LIBS = -lpthread 
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
 BackupOBJS = BackupModule.o BackupUtils.o \
@@ -19,7 +19,12 @@ OBJS = main.o config.o ConfFile.o \
 	   ProxyTaskDispatcher.o Log.o dir.o file.o \
 	   ReconnectThread.o Convert.o
 
+WITH_BACKUP ?= n
+ifeq "$(WITH_BACKUP)" 'y'
 OBJS += $(BackupOBJS)
+LIBS += -lsqlite3
+CXXFLAGS += -DWITH_BACKUP
+endif
 
 CVT_RULE += -DCONVERT_ZJ
 CXXFLAGS += $(CVT_RULE)

@@ -1,4 +1,5 @@
 
+#include "../include/pdebug.h"
 #include "ProxyTaskDispatcher.h"
 #include "Convert.h"
 CProxyTaskDispatcher::CProxyTaskDispatcher()
@@ -23,9 +24,11 @@ int CProxyTaskDispatcher::Dispatch( CSession* psession, const char* pData, int d
 	enum GRP_SIDE side;
 	enum CVT_RULE rule;
 	if( ConfigLookup(con, &groupid, &side, &rule) ) {
-		const char *pret; int retsize = 0;
-		if(Convert(rule, pData, dataSize, pret, retsize, psession)) {
+		const char *pret = NULL; int retsize = 0;
+		if(Convert(rule, pData, dataSize, 
+			pret, retsize, psession, con)) {
 			SendResultToOtherSide(groupid, side, pret, retsize);
+			if(pret != pData) delete [] pret; 
 		}
 	} else {
 		printf("Error: data from unconfiged session.\n");
@@ -46,21 +49,31 @@ void CProxyTaskDispatcher::EventCallBack(
 	struct TCPConn con = CreateConnBySession(psession);
 	switch (event) {
 		case NETWORK_STATE_UNCONNECTED:
+		{
 			printf("Disconnect: mod=%s, ip=%s, port=%u.\n",
 					con.mod == CLIENT?"CLIENT":"SERVER", 
 					con.ip.c_str(), con.port);
 			RemoveSessionInGroup(psession);
-			if(con.mod == CLIENT) AddIntoBrokens(con);
+			if(con.mod == CLIENT) 
+				AddIntoBrokens(con);
 			break;
+		}
 		case NETWORK_STATE_CONNECTED:
+		{
 			printf("Connected: mod=%s, ip=%s, port=%u.\n",
 					con.mod == CLIENT?"CLIENT":"SERVER", 
 					con.ip.c_str(), con.port);
+			if(con.mod == CLIENT)
+				RemoveFromBrokens(con);
 			AddSessionIntoGroup(con, psession);
+
 			break;
+		}
 		default:
+		{
 			printf("Error: undefined event!! \n");
 			break;
+		}
 	}
 }
 
@@ -91,6 +104,18 @@ void CProxyTaskDispatcher::AddIntoBrokens(struct TCPConn con)
 {
 	pthread_mutex_lock(m_conns_lock);
 	m_pbrokens->push_back(con);
+	pthread_mutex_unlock(m_conns_lock);
+}
+
+void CProxyTaskDispatcher::RemoveFromBrokens(const struct TCPConn &con)
+{
+	pthread_mutex_lock(m_conns_lock);
+	std::list<struct TCPConn>::iterator it;	
+	for(it = m_pbrokens->begin(); it != m_pbrokens->end(); it++) {
+		if( TCPConnEq(con, (*it) ) ) {
+			m_pbrokens->erase(it);
+		}
+	}
 	pthread_mutex_unlock(m_conns_lock);
 }
 
@@ -207,5 +232,15 @@ void CProxyTaskDispatcher::SendResultToOtherSide(
 	}
 
 	pthread_mutex_unlock(&m_session_lock);
+}
+
+void CProxyTaskDispatcher::SendResultToOtherSide(
+		const struct TCPConn &con, const char *data, int size)
+{
+	int groupid; enum GRP_SIDE side;
+	if( ConfigLookup(con, &groupid, &side, NULL) )
+		SendResultToOtherSide(groupid, side, data, size);
+	else 
+		PDEBUG("SendResultToOtherSide, lookup failed.\n");
 }
 

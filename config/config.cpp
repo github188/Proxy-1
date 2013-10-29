@@ -136,8 +136,13 @@ static int cfg_init_groups()
 
 		sprintf(key, "cvtrule%d", i);
 		if( g_file.getValue("SYSTEM", key, value, size) ) {
-			int rule = atoi(value);
+			enum CVT_RULE rule = (enum CVT_RULE)atoi(value);
 			switch(rule) {
+#ifdef CONVERT_ZJ
+				case RULE_ZJ:
+					group.rule = RULE_ZJ;
+					break;
+#endif
 				default:
 					group.rule = RULE_EMPTY;
 					break;
@@ -162,21 +167,80 @@ static int cfg_init_groups()
 	return i-1;
 }
 
-/* 填充 g_config.system 中的内容 */
-static int cfg_init_system()
+/* 填充 g_config.control 中的内容 */
+static int cfg_init_control()
 {
+	const int size = 256;
+	char value[size];
+
+	g_config.control.enable_monitor = false;
+	sprintf(value, "0");
+	if( g_file.getValueWithDefault("SYSTEM", "EnableMonitor",
+		 value, size) ) {
+		g_config.control.enable_monitor = (bool)atoi(value);
+	}
+
+	g_config.control.enable_backup = false;
+	sprintf(value, "0");
+	if( g_file.getValueWithDefault("SYSTEM", "EnableBackup",
+		 value, size) ) {
+		g_config.control.enable_backup = (bool)atoi(value);
+	}
+
 	return 1;
 }
 
-/* 填充g_config中的各个部分 */
+/* 读取备份相关的配置,并初始化指针g_config.backup 
+ * 分配的指针不需要释放，让其存活到系统退出
+ */
+static void cfg_init_backup()
+{
+	g_config.backup = new struct BackupConfig;
+
+	const int size = 256;
+	char value[size];
+	
+	g_config.backup->max_backup_num = 10000;
+	sprintf(value, "%d", 10000);
+	if( g_file.getValueWithDefault("Backup", "MaxBackupNum", 
+		value, size) ) 
+		g_config.backup->max_backup_num = atoi(value);
+
+	sprintf(value, "%s", "./backup/");
+	if( g_file.getValueWithDefault("Backup", "BackupDir", 
+		value, size) )
+		g_config.backup->backup_dir = std::string(value);
+
+	g_config.backup->backup_group_id = 0;
+	sprintf(value, "%d", 0);
+	if( g_file.getValueWithDefault("Backup", "GroupID", 
+		value, size) )
+		g_config.backup->backup_group_id = atoi(value);
+
+	g_config.backup->backup_sendto_side = RIGHTSIDE;
+	sprintf(value, "%d", (int)g_config.backup->backup_sendto_side);
+	if( g_file.getValueWithDefault("Backup", "BackupSide", 
+		value, size) )
+		g_config.backup->backup_sendto_side = (enum GRP_SIDE) atoi(value);
+
+}
+
+/* 填充g_config中的各个部分
+ * 如果没有读取到任何一组配置，则将全局状态设置为false
+ */
 static void cfg_init()
 {
 	memset(&g_config, 0, sizeof(g_config));
-	cfg_init_system();
+	
+	cfg_init_control();
+	if(g_config.control.enable_backup) 
+		cfg_init_backup();
+	
 	int count = cfg_init_groups();
 
 	PDEBUG("total groups: %d \n", count);
 
+	g_file.saveFile();
 	g_isconfgok = (bool) count;
 }
 
