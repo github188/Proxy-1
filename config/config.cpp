@@ -187,6 +187,13 @@ static int cfg_init_control()
 		g_config.control.enable_backup = (bool)atoi(value);
 	}
 
+	g_config.control.cache_live = 60;
+	sprintf(value, "60");
+	if( g_file.getValueWithDefault("SYSTEM", "CacheLiveSecs",
+				value, size) ) {
+		g_config.control.cache_live = atoi(value);
+	}
+
 	return 1;
 }
 

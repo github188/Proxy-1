@@ -84,6 +84,8 @@ struct BackupConfig {
 struct SystemControlConfig{
 	bool enable_monitor;
 	bool enable_backup;
+
+	int cache_live;
 };
 
 struct ProxyConfig {

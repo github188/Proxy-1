@@ -3,8 +3,8 @@ SRCDIR = ..
 
 CXX = g++
 LINK = g++
-CXXFLAGS = -g -Wall -DKISE_DEBUG
-LIBS = -lpthread 
+CXXFLAGS = -g -Wall #-DKISE_DEBUG
+LIBS = -lpthread -lKiseMonitor
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
 BackupOBJS = BackupModule.o BackupUtils.o \

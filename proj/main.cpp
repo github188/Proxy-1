@@ -12,6 +12,7 @@
 #include "../Backup/BackupModule.h"
 struct CBackupModule *g_pbackup = NULL;
 #endif
+#include "/usr/local/include/Kise/MonitorModule/MonitorModule.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,8 +49,8 @@ int main(int argc, char* argv[])
     }
 	
 	if (pcfg->control.enable_monitor) {
-		// Kise::Monitor::SetModuleID(modID);
-		// Kise::Monitor::MonitorLoop();
+		Kise::Monitor::SetModuleID(modID);
+		Kise::Monitor::MonitorLoop();
 	}
 
 	if ( pcfg->control.enable_backup ) {

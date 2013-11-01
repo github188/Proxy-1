@@ -9,7 +9,7 @@
 #		ifdef __KERNEL__                /* This one if debugging is on, and kernel space */
 #			define PDEBUG(fmt, args...) printk( KERN_DEBUG "Debug: " fmt, ## args)
 # 		else                                      /* This one for user space */
-#			define PDEBUG(fmt, args...) fprintf(stderr, fmt, ## args)
+#			define PDEBUG(fmt, args...) fprintf(stdout, fmt, ## args)
 # 		endif
 #else
 # 		define PDEBUG(fmt, args...) /* not debugging: nothing */

@@ -24,16 +24,18 @@ typedef struct {
 
 inline void ResponsePackID(const char *data, CSession *psession)
 {
-	char pkg[72];
-	memset(pkg,0, 72);
+	char pkg[73];
+	memset(pkg,0, 73);
 	*( (short*)(pkg + 2) ) = htons(1000);
 	*( (int *) (pkg + 4) ) = htonl(64);
 	memcpy(pkg+8, data+112, 64);
+	PDEBUG("We send an ack to source session, it's %s\n", pkg+8);
 	psession->Send( pkg, 72);
 }
 
 inline void SendOneStOut(const DataSt4ZJ &st) 
 {
+	PDEBUG("Now should send an cached package (time out).\n");
 	if(g_dispatcher)
 		g_dispatcher->SendResultToOtherSide(st.from, st.data, st.len);
 	else
@@ -67,29 +69,65 @@ int Convert_zj(const char *srcdata, int size,
 	} else {
 		if( size < 176 ) { 
 			PDEBUG("Here we get an ack, it's %s\n", srcdata+8);
-			backup_remove(srcdata + 8);
-			return Convert_empty(srcdata, size, ret, retsize);
-		}
-		int speed = 0, limitSpeed = 0;
-		speed = ntohl( *( (int*)(srcdata + 104) ) );
-		limitSpeed = ntohl( *( (int*)(srcdata + 108) ) );
-		PDEBUG("In Zj convert, speed = %d, limitSpeed = %d \n",
-				speed, limitSpeed);
-		if( speed <= limitSpeed ) {
-			return Convert_empty(srcdata, size, ret, retsize);
+			if( ! backup_remove(srcdata + 8) )
+				return Convert_empty(srcdata, size, ret, retsize);
+			else 
+				return 0;
 		} else {
-			DataSt4ZJ st; st.from = con;
-			st.speed = speed;
-			/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
-			if( CreateDataSt4ZJ(srcdata, size, st) ) {
+			int speed = 0, limitSpeed = 0;
+			speed = ntohl( *( (int*)(srcdata + 104) ) );
+			limitSpeed = ntohl( *( (int*)(srcdata + 108) ) );
+			PDEBUG("In Zj convert, speed = %d, limitSpeed = %d \n",
+					speed, limitSpeed);
+			if( speed <= limitSpeed ) {
+				return Convert_empty(srcdata, size, ret, retsize);
+			} else {
+				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
 				ResponsePackID(srcdata, psession);
-				return DealWithSt4ZJ(st, ret, retsize);
-			} 
+				DataSt4ZJ st; st.from = con;
+				st.speed = speed;
+				if( CreateDataSt4ZJ(srcdata, size, st) ) {
+					return DealWithSt4ZJ(st, ret, retsize);
+				} 
+			}
 		}
 	}
 	return 0;
 }
 
+#ifdef KISE_DEBUG
+/* LogCacheHistory 在调试时记录数据的前世今生
+ * flag : 0-新增数据  1-因合并而提取 2-因过期而删除
+ */
+inline void LogCacheHistory(int flag, const DataSt4ZJ &st, const DataSt4ZJ *pcm)
+{
+	// [CACHE_DEL, ITEM: overspeed=? speed=? timercv=? time=? ID=?]
+	std::string str;
+	if(flag == 0)
+		str += "[CACHE_ADD,    ITEM, ";
+	else if(flag == 1)
+		str += "[CACHE_COMBINE ITEM, ";
+	else if(flag ==2)
+		str += "[CACHE_TIMEOUT ITEM, ";
+	else
+		str += "[CACHE_UNKNOWN ITEM, ";
+	char temp[1024]; memset(temp, 0, 1024);
+	sprintf(temp, "overspeed = %d, speed = %d, timercv = %ld, time = %ld, packID=%s",
+		   st.overspeed?1:0, st.speed, st.timercv, st.time, st.data+112);
+	str += std::string(temp);
+	if(flag == 1 && pcm != NULL) {
+		sprintf(temp, ", combine: overspeed = %d, speed = %d, timercv = %ld, time = %ld, packID=%s",
+				pcm->overspeed?1:0, pcm->speed, pcm->timercv, pcm->time, pcm->data+112);
+		str += std::string(temp);
+	}
+	if( flag == 2 ) {
+		time_t t0 = time(NULL);
+		sprintf(temp, ", now = %ld, abs = %d", t0, abs( (int)(t0 - st.timercv)) );
+		str += std::string(temp);
+	}
+	fprintf(stderr, "%s\n", str.c_str());
+}
+#endif
 
 /* DealWithSt4ZJ : 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
@@ -101,44 +139,46 @@ static list<DataSt4ZJ> cache_pkgs_list;
 static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
 static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
 {
-	bool find = false; int r = 0;
 	pthread_mutex_lock(&cache_pkgs_lock);
 
 	for(list<DataSt4ZJ>::iterator it = cache_pkgs_list.begin(); 
 			it != cache_pkgs_list.end(); it++) {
-		if( cmp2st(st,(*it)) ) {
-			r = CreateResultPkg(*it, st, ret, retsize);
-			find = true;
+		if( cmp2st( st, (*it) ) ) {
+			int r = CreateResultPkg(*it, st, ret, retsize); 
+			CreateCCarAndBackup(ret, retsize);
+#ifdef KISE_DEBUG
+			LogCacheHistory(1, (*it), &st);
+#endif
 			delete [] (*it).data; 
-			cache_pkgs_list.erase(it);
-			break;
+			it = cache_pkgs_list.erase(it);
+			delete [] st.data;
+			pthread_mutex_unlock(&cache_pkgs_lock);
+			return r;
 		}
 	}
+	cache_pkgs_list.push_back(st);
+#ifdef KISE_DEBUG
+	LogCacheHistory(0, st, NULL);
+#endif
+
+	time_t now = time(NULL);
+	for(list<DataSt4ZJ>::iterator it = cache_pkgs_list.begin(); 
+			it != cache_pkgs_list.end(); it++) {
+		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
+		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
+			CreateCCarAndBackup( (*it).data, (*it).len );
+			SendOneStOut(*it);
+#ifdef KISE_DEBUG
+			LogCacheHistory(2, (*it), NULL);
+#endif
+			delete [] (*it).data;
+			it = cache_pkgs_list.erase(it);
+		}
+	}
+
+	PDEBUG( "Size of list is: %d \n",cache_pkgs_list.size() );
 	pthread_mutex_unlock(&cache_pkgs_lock);
-
-	if(find) { 
-		delete [] st.data;
-		return r;
-	} else { 
-		pthread_mutex_lock(&cache_pkgs_lock);
-		cache_pkgs_list.push_back(st);
-
-		time_t now = time(NULL);
-		for(list<DataSt4ZJ>::iterator it = cache_pkgs_list.begin(); 
-				it != cache_pkgs_list.end(); it++) {
-			PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
-			if( abs( now - (*it).timercv ) > 8 )  {
-				PDEBUG("Now should send an cached package.\n");
-				SendOneStOut(*it);
-				delete [] (*it).data;
-				it = cache_pkgs_list.erase(it);
-			}
-		}
-
-		PDEBUG( "Size of list is: %d \n",cache_pkgs_list.size() );
-		pthread_mutex_unlock(&cache_pkgs_lock);
-		return 0;
-	}
+	return 0;
 }
 
 
@@ -149,11 +189,15 @@ static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
  */
 static bool cmp2st(const DataSt4ZJ& st1, const DataSt4ZJ& st2)
 {
-	if( st1.overspeed != st2.overspeed )
-		if( st1.direction == st2.direction )
-			if( abs(st1.speed - st2.speed) < 5 )
-				if( abs( st1.time - st2.time ) < 2 )
+	if( st1.overspeed != st2.overspeed ) {
+		if( st1.direction == st2.direction ) {
+			if( abs( (int)(st1.speed - st2.speed) ) < 5 ) {
+				if( abs( (int)(st1.time - st2.time) ) < 2 ) {
 					return true; 
+				}
+			}
+		}
+	}
 	return false;
 }
 
@@ -220,7 +264,6 @@ static bool CreateDataSt4ZJ(const char* pData, int dataSize, DataSt4ZJ& item)
 
 	char direct[8] = {0};
 	memcpy(direct, pData + 44, 8);
-	printf("Direction is : %s \n", direct);
 	item.direction = string(direct); 
 	item.timercv = time(NULL);
 
@@ -244,7 +287,7 @@ static bool CreateDataSt4ZJ(const char* pData, int dataSize, DataSt4ZJ& item)
 	hour = ntohs( *( (short*)(pData + 184) ) );
 	min = ntohs( *( (short*)(pData + 186) ) );
 	sec = ntohs( *( (short*)(pData + 188) ) );
-	printf("Create Zj struct, time %d-%d-%d %d:%d:%d\n",
+	PDEBUG("Create Zj struct, time %d-%d-%d %d:%d:%d\n",
 			year, month, day, hour, min, sec);
 	struct tm pkgtm;
 	pkgtm.tm_sec = sec;

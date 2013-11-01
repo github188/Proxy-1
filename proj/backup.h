@@ -8,6 +8,15 @@
 extern CBackupModule *g_pbackup;
 #endif
 
+#ifdef WITH_BACKUP
+static void backup_callback(CCar *pcar) 
+{
+	jsbytearray pack;
+	PackCarInfo(pack, pcar);
+
+}
+#endif
+
 inline void backup_init()
 {
 #ifdef WITH_BACKUP
@@ -15,6 +24,7 @@ inline void backup_init()
 		const struct BackupConfig &cfg = *(ConfigGet()->backup);
 		g_pbackup = new CBackupModule(cfg.max_backup_num, 
 				cfg.backup_dir);
+		g_pbackup.SetCallBack(backup_callback);
 	} else {
 		return;
 	}
@@ -38,5 +48,16 @@ inline bool backup_remove(const char *packetID)
 		return false;
 #endif
 	return false;
+}
+
+inline void CreateCCarAndBackup(const char *data, int datasize) {
+#ifdef WITH_BACKUP
+	CCar *pcar = new CCar;
+	CJSByteArray pack;
+	pack.PutData(ret, retsize);
+	UnpackCarInfo(pack, pcar);
+	backup_add(pcar);
+	delete pcar;
+#endif
 }
 
