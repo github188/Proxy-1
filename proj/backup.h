@@ -1,14 +1,14 @@
 
 #include "../include/Car.h"
 
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 #include "../Backup/DataCache.h"
 #include "../Backup/BackupModule.h"
 #include "../config/config.h"
 extern CBackupModule *g_pbackup;
 #endif
 
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 static void backup_callback(CCar *pcar) 
 {
 	jsbytearray pack;
@@ -19,7 +19,7 @@ static void backup_callback(CCar *pcar)
 
 inline void backup_init()
 {
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 	if(ConfigGet()->control.enable_backup) {
 		const struct BackupConfig &cfg = *(ConfigGet()->backup);
 		g_pbackup = new CBackupModule(cfg.max_backup_num, 
@@ -33,7 +33,7 @@ inline void backup_init()
 
 inline void backup_add(const CCar *pcar)
 {
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 	if( g_pbackup ) 
 		g_pbackup->GetDataCache()->Append(pcar);
 #endif
@@ -41,7 +41,7 @@ inline void backup_add(const CCar *pcar)
 
 inline bool backup_remove(const char *packetID)
 {
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 	if( g_pbackup )
 		return ( g_pbackup->GetDataCache()->Remove(packetID) );
 	else
@@ -51,7 +51,7 @@ inline bool backup_remove(const char *packetID)
 }
 
 inline void CreateCCarAndBackup(const char *data, int datasize) {
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 	CCar *pcar = new CCar;
 	CJSByteArray pack;
 	pack.PutData(ret, retsize);

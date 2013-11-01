@@ -8,11 +8,14 @@
 #include "ProxyTaskDispatcher.h"
 #include "ReconnectThread.h"
 
-#ifdef WITH_BACKUP
+#ifdef CONFIG_BACKUP
 #include "../Backup/BackupModule.h"
 struct CBackupModule *g_pbackup = NULL;
 #endif
+
+#ifdef CONFIG_MONITOR
 #include "/usr/local/include/Kise/MonitorModule/MonitorModule.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,11 +50,13 @@ int main(int argc, char* argv[])
         modID = atoi(argv[1]);
         printf("modID = %d\n", modID);
     }
-	
+
+#ifdef CONFIG_MONITOR
 	if (pcfg->control.enable_monitor) {
 		Kise::Monitor::SetModuleID(modID);
 		Kise::Monitor::MonitorLoop();
 	}
+#endif
 
 	if ( pcfg->control.enable_backup ) {
 		backup_init();
