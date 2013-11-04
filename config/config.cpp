@@ -136,17 +136,7 @@ static int cfg_init_groups()
 
 		sprintf(key, "cvtrule%d", i);
 		if( g_file.getValue("SYSTEM", key, value, size) ) {
-			enum CVT_RULE rule = (enum CVT_RULE)atoi(value);
-			switch(rule) {
-#ifdef CONVERT_ZJ
-				case RULE_ZJ:
-					group.rule = RULE_ZJ;
-					break;
-#endif
-				default:
-					group.rule = RULE_EMPTY;
-					break;
-			}
+			group.rule = (enum CVT_RULE)atoi(value);
 			PDEBUG("%s: %d\n", key, group.rule);
 		} else { 
 			break;
@@ -156,6 +146,7 @@ static int cfg_init_groups()
 			printf("Init config failed (group%d, left side).\n", i);
 			return 0;
 		}
+
 		if( 0 == cfg_init_conns(i, RIGHTSIDE, group.right) ) {
 			printf("Init config failed (group%d, right side).\n", i);
 			return 0;
