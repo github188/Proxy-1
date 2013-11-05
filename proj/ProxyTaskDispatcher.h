@@ -30,6 +30,8 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		virtual void EventCallBack(CSession* pSession, short event);
 
 		void SendResultToOtherSide(const struct TCPConn &con, const char *data, int size);
+		void SendResultToOtherSide(int gpid, enum GRP_SIDE side,
+				const char *data, int size);
 
 		void SetBrokenConns(std::list<struct TCPConn> *pconns,
 				pthread_mutex_t *lock) {
@@ -42,8 +44,6 @@ class CProxyTaskDispatcher: public CTaskDispatcher
 		void InitSessionGroups(void);
 
 		struct TCPConn CreateConnBySession(CSession *psession);
-		void SendResultToOtherSide(int gpid, enum GRP_SIDE side,
-				const char *data, int size);
 	private:
 		std::list<SessionGroup> m_groups;
 		pthread_mutex_t m_session_lock;

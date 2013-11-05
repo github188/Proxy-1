@@ -1,5 +1,6 @@
 
 #include "Convert.h"
+#include "Convert_sf.h"
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
 #include "backup.h"
@@ -14,7 +15,7 @@ typedef struct {
 	int len;  	// data的长度
 	char* data; // 数据包的原始内容
 	std::string direction; // 方向信息
-	int lane;       // 车辆信息包中的车道号
+	int road;       // 车辆信息包中的车道号
 	int speed;      // 速度
 	time_t timercv; // 接收到该包的时刻
 	time_t time;    // 该包中时间字段的值
@@ -27,11 +28,12 @@ typedef struct {
  * data: 数据包的原始数据 psession: 数据来源的会话 */
 static inline void ResponsePackID(const char *data, CSession *psession)
 {
+	struct sf_protocol_data *p = (struct sf_protocol_data*) data;
 	char pkg[73];
 	memset(pkg,0, 73);
 	*( (short*)(pkg + 2) ) = htons(1000);
 	*( (int *) (pkg + 4) ) = htonl(64);
-	memcpy(pkg+8, data+154, 64);
+	memcpy(pkg+8, p->packetID, 64);
 	PDEBUG("We send an ack to source session, it's %s\n", pkg+8);
 	psession->Send( pkg, 72);
 }
@@ -52,16 +54,19 @@ static int DealWithSt4ZJ(struct4sf& st, const char *&ret, int &retsize);
 static int CreateResultPkg(const struct4sf& st1, const struct4sf& st2, 
 		const char *&ret, int &retsize);
 static bool cmp2st(const struct4sf& st1, const struct4sf& st2);
+static void CreateCCarAndBackup(const char *data, int datasize);
 
 /**
  * 什邡的转换规则
- * TODO ！！！硬编码
  * 1. 判断数据包，如果不是车辆信息包则直接转发
  * 2. 如果是车辆信息包但是没有超速也直接转发 
  * 3. 如果是超速数据，则将超速相机与治安卡口数据关联生成包
  * 4. 考虑备份，应该先回应数据来源一个包ID
- * 5. 特别的，如果是一个车辆信息回应包，一要删除本程序中的备份数据
- *    二要将这个ACK包回应给数据来源
+ * 5. 特别的，如果是一个车辆信息回应包，一要注意删除本程序中的备份数据
+ *    二要可能将这个ACK包回应给数据来源
+ *
+ * 如果返回大于0且 srcdata != ret，则在内部分配了存放新数据包的空间
+ * 在调用者处理完了之后应当释放ret
  */
 int Convert_sf(const char *srcdata, int size, 
 		const char *&ret, int &retsize, CSession *psession, struct TCPConn con)
@@ -72,16 +77,18 @@ int Convert_sf(const char *srcdata, int size,
 	if( type != 1000 ) {
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
-		if( size < 222 ) { 
+		if( size < (int)sizeof(struct sf_protocol_data) ) { 
 			PDEBUG("Here we get an ack, it's %s\n", srcdata+8);
 			if( ! backup_remove(srcdata + 8) )
 				return Convert_empty(srcdata, size, ret, retsize);
 			else 
 				return 0;
 		} else {
+			struct sf_protocol_data *p;
+			p = (struct sf_protocol_data *) srcdata;
 			int speed = 0, limitSpeed = 0;
-			speed = ntohl( *( (int*)(srcdata + 146) ) );
-			limitSpeed = ntohl( *( (int*)(srcdata + 150) ) );
+			speed = ntohl( p->speed );
+			limitSpeed = ntohl( p->limitSpeed );
 			PDEBUG("In SF convert, speed = %d, limitSpeed = %d \n",
 					speed, limitSpeed);
 			if( speed <= limitSpeed ) {
@@ -196,9 +203,11 @@ static bool cmp2st(const struct4sf& st1, const struct4sf& st2)
 {
 	if( st1.overspeed != st2.overspeed ) {
 		if( st1.direction == st2.direction ) {
-			if( abs( (int)(st1.speed - st2.speed) ) < 5 ) {
-				if( abs( (int)(st1.time - st2.time) ) < 2 ) {
-					return true; 
+			if(st1.road == st2.road) {
+				if( abs( (int)(st1.speed - st2.speed) ) < 5 ) {
+					if( abs( (int)(st1.time - st2.time) ) < 2 ) {
+						return true; 
+					}
 				}
 			}
 		}
@@ -211,12 +220,10 @@ static bool cmp2st(const struct4sf& st1, const struct4sf& st2)
  * ret: 封装后的数据，内部动态分配的存储
  * retsize: ret中数据的长度
  * RETURN:  等于retsize
- * TODO 如果开启了备份，则把数据放入备份模块
  */
 static int CreateResultPkg(
 		const struct4sf& st1, const struct4sf& st2, const char *&ret, int &retsize)
 {
-	PDEBUG("CreateResultPkg ... \n");
 	const struct4sf* pOverspeed = NULL;
 	const struct4sf* pCommon = NULL;
 	if( st1.overspeed ) {
@@ -227,38 +234,55 @@ static int CreateResultPkg(
 		pCommon = &st1;
 	}
 	
-	int commonImgLen = ntohl( *(int*)(pCommon->data + 192) );
+	struct sf_protocol_data *po = (struct sf_protocol_data*)(pOverspeed->data);
+	struct sf_protocol_data *pc = (struct sf_protocol_data*)(pCommon->data);
+	struct sf_img_data *pcominfo = (struct sf_img_data*) ( 
+			pCommon->data + sizeof(struct sf_protocol_data) );
+	
+	/* 最终数据 = 超速数据基本信息 + 超速图片信息 + 超速图片数据 + 卡口图片信息 + 卡口图片 */
+	int commonImgLen = ntohl( pcominfo->length );
+	int finalLen = 0;
+	finalLen += sizeof(struct sf_protocol_data);
+	int offset = sizeof(struct sf_protocol_data);
+	for( int i = 0; i < po->imageNum; i++ ) {
+		struct sf_img_data *pi = (struct sf_img_data*)(pOverspeed->data + offset);
+		finalLen += sizeof(struct sf_img_data);
+		finalLen += pi->length;
+		offset = finalLen;
+	}
+	finalLen += sizeof(struct sf_img_data) + commonImgLen;
+	finalLen += 4;
 
-	// 最终数据的长度等于： 超速数据包的长度 + 卡口数据图片相关固定长度18 + 卡口图片长度
-	int finalLen = pOverspeed->len + 18 + commonImgLen;
 	char *finalData = new char[finalLen];
-	
-   	// 前半部分跟超速数据一样
-	memcpy(finalData, pOverspeed->data, pOverspeed->len);// 超速数据包长度
-	// 覆盖车牌号码
-	memcpy(finalData + 60, pCommon->data + 60, 16);
-	PDEBUG("plate is: %s \n", pCommon->data + 60);
-	
-	memcpy(finalData + pOverspeed->len, 
-			pCommon->data + 178, 
-			18 + commonImgLen     // 图片相关数据（时间）及图片长度
-		  ); // 拷贝治安卡口 imgNum 之后的数据
+	memcpy(finalData, pOverspeed->data, offset);
 
-	*( (short*)(finalData + 176) ) = htons(  ntohs( *(short*)(finalData + 176) ) + 1); 
-	*( (int*)(finalData + 4) ) = htonl( finalLen - 8 );  // 修改协议包中的L字段
-	*( (int*)(finalData + 8) ) = htonl(1); // 卡口加超速数据
+	/* 覆盖车牌号码 */
+	struct sf_protocol_data *pf = (struct sf_protocol_data*)(finalData);
+	memcpy( pf->plate, pc->plate, sizeof(pf->plate) );
+	PDEBUG("plate is: %s \n", pf->plate);
+	
+	memcpy(finalData + offset, (char*)pcominfo, 
+			sizeof(struct sf_img_data) + commonImgLen);
+
+	/* 视频数目 */
+	*( (int*)(finalData + finalLen - 4) ) = htonl(0); 
+
+	/* 最后将图片数目加1 */
+	pf->imageNum = htonl( ntohl(pf->imageNum) + 1 );
+
 	ret = finalData;
 	retsize = finalLen;
 	return retsize;
 
 }
 
-/**
- * 解析一个数据包，获取中江卡口的相关信息,存储在item中返回
+/* 解析一个数据包，获取卡口的相关信息,存储在item中返回
+ * 将原始数据拷贝了出来,在堆上分配了空间
+ * 同时记录当前的时间作为收到数据包的时间
  */
 static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item)
 {
-	if(dataSize < 190 ) {
+	if( dataSize < (int)(sizeof(struct sf_protocol_data) + sizeof(struct sf_img_data) ) ) {
 		printf("Data can't convert ... len (%d) \n", dataSize);
 		return false;
 	}
@@ -267,43 +291,182 @@ static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item)
 	item.data = new char[dataSize];
 	memcpy(item.data, pData, dataSize);
 
-	char direct[8] = {0};
-	memcpy(direct, pData + 44, 8);
-	item.direction = string(direct); 
+	struct sf_protocol_data *p = (struct sf_protocol_data *)pData;
+
+	item.direction = string( p->direction ); 
+	item.road = ntohl( p->road );
 	item.timercv = time(NULL);
 
-	// 0 是治安卡口, 2 是超速卡口
-	int type = ntohl( *( (int*)(pData + 8) ) );
-	if(type == 0) {
+	int imgnum = ntohs( p->imageNum );
+	if( imgnum == 1 ) {
 		item.overspeed = false;
-	} else if(type == 2) {	
+	} else if( imgnum == 2) {	
 		item.overspeed = true;
 	} else {
-		printf("Error, Createstruct4sf, type unexpect (%d)\n",
-				type);
+		printf("Error, Createstruct4sf, image number unexpect (%d)\n", imgnum);
 		delete [] item.data;
 		return false;
 	}
 
-	short year, month, day, hour, min, sec;
-	year = ntohs( *( (short*)(pData + 178) ) );
-	month = ntohs( *( (short*)(pData + 180) ) );
-	day = ntohs( *( (short*)(pData + 182) ) );
-	hour = ntohs( *( (short*)(pData + 184) ) );
-	min = ntohs( *( (short*)(pData + 186) ) );
-	sec = ntohs( *( (short*)(pData + 188) ) );
-	PDEBUG("Create Zj struct, time %d-%d-%d %d:%d:%d\n",
-			year, month, day, hour, min, sec);
+	/* 这里获取第一张图片的信息 */
+	struct sf_img_data *imginfo = 
+		(struct sf_img_data *)( pData + sizeof(struct sf_protocol_data) );
+
 	struct tm pkgtm;
-	pkgtm.tm_sec = sec;
-	pkgtm.tm_min = min;
-	pkgtm.tm_hour = hour;
-	pkgtm.tm_mon = month - 1;  // 0 - 11
-	pkgtm.tm_year = year - 1900;
-	pkgtm.tm_mday = day;
+	pkgtm.tm_sec = ntohs(imginfo->second);
+	pkgtm.tm_min = ntohs(imginfo->minute);
+	pkgtm.tm_hour = ntohs(imginfo->hour);
+	pkgtm.tm_mon = ntohs(imginfo->month) - 1;  // 0 - 11
+	pkgtm.tm_year = ntohs(imginfo->year) - 1900;
+	pkgtm.tm_mday = ntohs(imginfo->day);
+
+	PDEBUG("Create Zj struct, time %d-%d-%d %d:%d:%d\n",
+			ntohs(imginfo->year), ntohs(imginfo->month), ntohs(imginfo->day), 
+			ntohs(imginfo->hour), ntohs(imginfo->minute), ntohs(imginfo->second) );
 
 	item.time = mktime(&pkgtm);
 
 	return true;
+}
+
+/* 将网络数据包封装成CCar并进行备份 
+ * 由于备份模块new并复制了CCar所以本类结束时将释放自己new的Car对象
+ */
+static void CreateCCarAndBackup(const char* data, int datasize) {
+	if( !ConfigGet()->control.enable_backup )
+		return;
+#ifdef CONFIG_BACKUP
+	CCar *pcar = new CCar;
+	struct sf_protocol_data *p = (struct sf_protocol_data *)data;
+
+	pcar->packetID = std::string(p->packetID);
+	pcar->machineID = "";
+	pcar->monitorID = std::string(p->monitorID);
+	pcar->direction = std::string(p->direction);
+	pcar->cameraNo = ntohl(p->camera);
+	pcar->virtualRoadNo = 0;
+	pcar->roadNo = ntohl(p->road);
+	memcpy(pcar->plate, p->plate, sizeof(pcar->plate) );
+	pcar->plateX = ntohl(p->plateX);
+	pcar->plateY = ntohl(p->plateY);
+	pcar->plateWidth = ntohl(p->plateWidth);
+	pcar->plateHeight = ntohl(p->plateHeight);
+	pcar->confidence = ntohl(p->confidence);
+	pcar->plateColor = ntohs(p->plateColor);
+	pcar->style = ntohs(p->style);
+	pcar->color = ntohs(p->color);
+	pcar->detect = p->detect;
+	pcar->isViolation = p->isViolation;
+	pcar->tmRedBegin.tv_sec = 0;
+	pcar->tmRedBegin.tv_usec = 0;
+	memcpy(pcar->vioType, p->vioType, sizeof(pcar->vioType) );
+	pcar->speed = ntohl(p->speed);
+	pcar->limitSpeed = ntohl(p->limitSpeed);
+	pcar->imageNum = ntohl(p->imageNum);
+
+	int offset = sizeof(struct sf_protocol_data);
+	for(int i = 0; i < pcar->imageNum; i++) {
+		struct sf_img_data *pi = (struct sf_img_data *)(data + offset);
+		struct tm cartm;
+		cartm.tm_sec = ntohs(pi->second);
+		cartm.tm_min = ntohs(pi->minute);
+		cartm.tm_hour = ntohs(pi->hour);
+		cartm.tm_mon = ntohs(pi->month) - 1;  // 0 - 11
+		cartm.tm_year = ntohs(pi->year) - 1900;
+		cartm.tm_mday = ntohs(pi->day);
+		pcar->time[i].tv_sec = mktime( &cartm );
+		pcar->time[i].tv_usec = ntohs(pi->msecond);
+		pcar->imageLen[i] = ntohl(pi->length);
+
+		offset += sizeof(struct sf_img_data);
+
+		pcar->image[i] = new char[ pcar->imageLen[i] ];
+		memcpy( pcar->image[i], data + offset, pcar->imageLen[i] );
+		
+		offset += ntohl(pi->length);
+	}
+
+	pcar->videoNum = 0;
+
+	backup_add(pcar);
+
+	delete pcar;
+#endif
+}
+
+/* 备份的回调函数，在这里将数据发送出去  
+ * 发送到配置文件中指定的地方
+ */
+void backup_callback(CCar *pcar) 
+{
+	int length = sizeof(struct sf_protocol_data);
+	for(int i = 0; i < pcar->imageNum; i++) {
+		length += sizeof(struct sf_img_data);
+		length += pcar->imageLen[i];
+	}
+	length += 4;
+	char *ret = new char[length];
+	struct sf_protocol_data *pret = (struct sf_protocol_data*)ret;
+
+	pret->type = htonl(1000);
+	pret->length = htonl(length - 8);
+	strncpy( pret->monitorID, pcar->monitorID.c_str(), sizeof(pret->monitorID) );
+	strncpy( pret->direction, pcar->direction.c_str(), sizeof(pret->direction) );
+	pret->camera = htonl(pcar->cameraNo);
+	pret->road = htonl(pcar->roadNo);
+	memcpy(pret->plate, pcar->plate, sizeof(pret->plate));
+	pret->plateX = htonl(pcar->plateX);
+	pret->plateY = htonl(pcar->plateY);
+	pret->plateWidth = htonl(pcar->plateWidth);
+	pret->plateHeight = htonl(pcar->plateHeight);
+	pret->confidence = htonl(pcar->confidence);;
+	pret->plateColor = htons(pcar->plateColor);
+	pret->style = htons(pcar->style);
+	pret->color = htons(pcar->color);
+	pret->detect = pcar->detect;
+	pret->isViolation = pcar->isViolation;
+
+	pret->year = 0;
+	pret->month = 0;
+	pret->day = 0;
+	pret->hour = 0;
+	pret->minute = 0;
+	pret->second = 0;
+	pret->msecond = 0;
+
+	memcpy(pret->vioType, pcar->vioType, sizeof(pret->vioType) );
+	pret->speed = htonl(pcar->speed);
+	pret->limitSpeed = htonl(pcar->limitSpeed);
+	strncpy( pret->packetID, pcar->packetID.c_str(), sizeof(pret->packetID) );
+	pret->imageNum = htonl(pcar->imageNum);
+
+	int offset = sizeof(struct sf_protocol_data);
+	for(int j = 0; j < pcar->imageNum; j++) {
+		struct sf_img_data *pi = (struct sf_img_data*) (ret + offset) ;
+		struct tm *imgtm = gmtime( &(pcar->time[j].tv_sec) );
+		pi->year = (short) htonl(imgtm->tm_year + 1900);
+		pi->month = (short) htonl(imgtm->tm_mon + 1);
+		pi->day = (short) htonl(imgtm->tm_mday);
+		pi->hour = (short) htonl(imgtm->tm_hour);
+		pi->minute = (short) htonl(imgtm->tm_min);
+		pi->second = (short) htonl(imgtm->tm_sec);
+		pi->msecond = (short) pcar->time[j].tv_usec;
+		pi->length = htonl( pcar->imageLen[j] );
+
+		offset += sizeof(struct sf_img_data);
+
+		memcpy( ret + offset, pcar->image[j], pcar->imageLen[j] );
+		
+		offset += pcar->imageLen[j];
+	}
+
+	*( (int *)(ret - 4) ) = htonl(0);
+
+	g_dispatcher->SendResultToOtherSide(
+			ConfigGet()->backup->backup_group_id, 
+			ConfigGet()->backup->backup_side, 
+			ret, length);
+
+	delete [] ret;
 }
 

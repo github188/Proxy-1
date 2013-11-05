@@ -8,11 +8,6 @@
 #include "ProxyTaskDispatcher.h"
 #include "ReconnectThread.h"
 
-#ifdef CONFIG_BACKUP
-#include "../Backup/BackupModule.h"
-struct CBackupModule *g_pbackup = NULL;
-#endif
-
 #ifdef CONFIG_MONITOR
 #include "/usr/local/include/Kise/MonitorModule/MonitorModule.h"
 #endif
@@ -24,6 +19,11 @@ struct CBackupModule *g_pbackup = NULL;
 #include <list>
 
 #define CONFIG_PATH "./"
+
+#ifdef CONFIG_BACKUP
+#include "../Backup/BackupModule.h"
+struct CBackupModule *g_pbackup = NULL;
+#endif
 
 #include "backup.h"
 
@@ -121,4 +121,5 @@ void InitConnections(CNetwork *pNet)
 	}
 
 }
+
 

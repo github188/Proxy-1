@@ -1,21 +1,19 @@
 
+#ifndef BACKUP_LH
+#define BACKUP_LH
+
 #include "../include/Car.h"
 
 #ifdef CONFIG_BACKUP
+
 #include "../Backup/DataCache.h"
 #include "../Backup/BackupModule.h"
 #include "../config/config.h"
-extern CBackupModule *g_pbackup;
+
+extern struct CBackupModule *g_pbackup;
 #endif
 
-#ifdef CONFIG_BACKUP
-static void backup_callback(CCar *pcar) 
-{
-	jsbytearray pack;
-	PackCarInfo(pack, pcar);
-
-}
-#endif
+extern void backup_callback(CCar *pcar);
 
 inline void backup_init()
 {
@@ -24,7 +22,7 @@ inline void backup_init()
 		const struct BackupConfig &cfg = *(ConfigGet()->backup);
 		g_pbackup = new CBackupModule(cfg.max_backup_num, 
 				cfg.backup_dir);
-		g_pbackup.SetCallBack(backup_callback);
+		g_pbackup->SetCallBack(backup_callback);
 	} else {
 		return;
 	}
@@ -50,14 +48,5 @@ inline bool backup_remove(const char *packetID)
 	return false;
 }
 
-inline void CreateCCarAndBackup(const char *data, int datasize) {
-#ifdef CONFIG_BACKUP
-	CCar *pcar = new CCar;
-	CJSByteArray pack;
-	pack.PutData(ret, retsize);
-	UnpackCarInfo(pack, pcar);
-	backup_add(pcar);
-	delete pcar;
 #endif
-}
 

@@ -3,7 +3,7 @@ SRCDIR = ..
 
 CXX = g++
 LINK = g++
-CXXFLAGS = -g -Wall #-DKISE_DEBUG
+CXXFLAGS = -g -Wall -DKISE_DEBUG
 LIBS = -lpthread 
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
@@ -32,8 +32,9 @@ CXXFLAGS += -DCONFIG_MONITOR
 endif
 
 CVT_RULE += -DCONVERT_ZJ
+CVT_RULE += -DCONVERT_SF
 CXXFLAGS += $(CVT_RULE)
-OBJS += Convert_zj.o
+OBJS += Convert_zj.o Convert_sf.o
 
 TARGET =	NetworkProxy
 
@@ -42,6 +43,7 @@ $(TARGET):	$(OBJS)
 	
 clean:
 	rm -f $(OBJS) $(TARGET) 
+	rm -f *.o
 
 
 ##  compile 
@@ -52,6 +54,9 @@ stltool.o : $(SRCDIR)/Tool/stltool.cpp $(SRCDIR)/Tool/stltool.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 
 Convert_zj.o : $(SRCDIR)/proj/Convert_zj.cpp
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+Convert_sf.o : $(SRCDIR)/proj/Convert_sf.cpp 
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 
 Convert.o : $(SRCDIR)/proj/Convert.cpp $(SRCDIR)/proj/Convert.h

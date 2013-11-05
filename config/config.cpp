@@ -215,11 +215,11 @@ static void cfg_init_backup()
 		value, size) )
 		g_config.backup->backup_group_id = atoi(value);
 
-	g_config.backup->backup_sendto_side = RIGHTSIDE;
-	sprintf(value, "%d", (int)g_config.backup->backup_sendto_side);
+	g_config.backup->backup_side = RIGHTSIDE;
+	sprintf(value, "%d", (int)g_config.backup->backup_side);
 	if( g_file.getValueWithDefault("Backup", "BackupSide", 
 		value, size) )
-		g_config.backup->backup_sendto_side = (enum GRP_SIDE) atoi(value);
+		g_config.backup->backup_side = (enum GRP_SIDE) atoi(value);
 
 }
 

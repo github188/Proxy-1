@@ -17,8 +17,6 @@
 
 using namespace std;
 
-// #include "../Tool/timeclass.h"
-
 const int CAR_NUM = 4; //超速的时候会有两张图片
 const int MAX_VIDEO_NUM = 2;
 

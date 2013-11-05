@@ -78,7 +78,7 @@ struct BackupConfig {
 	int max_backup_num;     // 最大备份记录条数
 	std::string backup_dir; // 备份路径
 	int backup_group_id;    // 备份的组
-	enum GRP_SIDE backup_sendto_side; // 数据应该发给哪一边?
+	enum GRP_SIDE backup_side; // 备份的一边
 };
 
 struct SystemControlConfig{

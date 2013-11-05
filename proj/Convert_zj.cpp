@@ -145,7 +145,7 @@ static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
 			it != cache_pkgs_list.end(); it++) {
 		if( cmp2st( st, (*it) ) ) {
 			int r = CreateResultPkg(*it, st, ret, retsize); 
-			CreateCCarAndBackup(ret, retsize);
+			// CreateCCarAndBackup(ret, retsize);
 #ifdef KISE_DEBUG
 			LogCacheHistory(1, (*it), &st);
 #endif
@@ -166,7 +166,7 @@ static int DealWithSt4ZJ(DataSt4ZJ& st, const char *&ret, int &retsize)
 			it != cache_pkgs_list.end(); it++) {
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
 		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
-			CreateCCarAndBackup( (*it).data, (*it).len );
+			// CreateCCarAndBackup( (*it).data, (*it).len );
 			SendOneStOut(*it);
 #ifdef KISE_DEBUG
 			LogCacheHistory(2, (*it), NULL);
