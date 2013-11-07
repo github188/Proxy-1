@@ -13,7 +13,7 @@ struct ProxyGroup;
 struct ProxyConfig;
 
 enum TCP_MOD { CLIENT = 0, SERVER = 1 };
-enum GRP_SIDE {LEFTSIDE, RIGHTSIDE};
+enum GRP_SIDE {LEFTSIDE = 0, RIGHTSIDE = 1};
 
 /* ConfigGet & ConfigSet
  * 获取与设置系统的配置项

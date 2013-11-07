@@ -23,6 +23,7 @@ inline void backup_init()
 		g_pbackup = new CBackupModule(cfg.max_backup_num, 
 				cfg.backup_dir);
 		g_pbackup->SetCallBack(backup_callback);
+		g_pbackup->Start();
 	} else {
 		return;
 	}
@@ -32,8 +33,10 @@ inline void backup_init()
 inline void backup_add(const CCar *pcar)
 {
 #ifdef CONFIG_BACKUP
-	if( g_pbackup ) 
+	if( g_pbackup ) {
+		PDEBUG("~~~~~~~~>backup_add car ......\n");
 		g_pbackup->GetDataCache()->Append(pcar);
+	}
 #endif
 }
 

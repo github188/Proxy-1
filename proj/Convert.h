@@ -5,12 +5,20 @@
 #include "../config/config.h"
 #include "../Network/Session.h"
 
+#ifdef KISE_DEBUG
+#include <arpa/inet.h>
+#endif 
+
 /* Convert_empty : 一个空的转换规则
  * 作用： 将数据源的指针和大小复制到结果中
  */
 inline int Convert_empty(const char *srcdata, int size,
 		const char *&result, int &retsize)
 {
+#ifdef KISE_DEBUG
+	int type = ntohl( *( (int*)srcdata ) ) & 0x0fffffff;
+	printf("In empty convert, type is: %d\n", type);
+#endif
 	result = srcdata;
 	retsize = size;
 	return retsize;

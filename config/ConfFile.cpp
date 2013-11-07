@@ -173,7 +173,7 @@ int CConfFile::setValues(const struct SecKeyVal* ptr,size_t count)
 	if(ptr == NULL)return false;
 	int ret = 0; // 返回设置的个数
 	bool signs[MAX_SECTIONS] = {false}; // 用来标志被修改段
-	for(size_t i;i<count;i++){// 对于每个要修改的键值对
+	for(size_t i = 0; i<count; i++){// 对于每个要修改的键值对
 		int index = -1; // 定位
 		CfgItems::iterator cp; // 迭代器
 		index = getIterator(ptr[i].sect,ptr[i].key,cp);

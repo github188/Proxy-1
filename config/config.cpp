@@ -204,7 +204,7 @@ static void cfg_init_backup()
 		value, size) ) 
 		g_config.backup->max_backup_num = atoi(value);
 
-	sprintf(value, "%s", "./backup/");
+	sprintf(value, "%s", "/home/ftp/ProxyBackup/");
 	if( g_file.getValueWithDefault("Backup", "BackupDir", 
 		value, size) )
 		g_config.backup->backup_dir = std::string(value);

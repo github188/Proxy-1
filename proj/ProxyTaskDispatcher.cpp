@@ -225,8 +225,11 @@ void CProxyTaskDispatcher::SendResultToOtherSide(
 			std::list<CSession*> &ll =
 				( side == LEFTSIDE ? (*it).right : (*it).left );
 			for(temp = ll.begin(); temp != ll.end(); temp++) {
-				if( (*temp) )
-					(*temp)->Send(data, size);
+				if( (*temp) ) {
+					PDEBUG("-------Here send, size is %d\n", size);
+					if( -1 == ( (*temp)->Send(data, size) ) ) 
+						PDEBUG("------Here, send failed.\n");
+				}
 			}
 		}
 	}
