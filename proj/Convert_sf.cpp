@@ -3,6 +3,7 @@
 #include "Convert_sf.h"
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
+#include "../include/timewrap.h"
 #include "backup.h"
 
 #include <arpa/inet.h>
@@ -388,8 +389,13 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 	pcar->color = ntohs(p->color);
 	pcar->detect = p->detect;
 	pcar->isViolation = p->isViolation;
-	pcar->tmRedBegin.tv_sec = 0;
-	pcar->tmRedBegin.tv_usec = 0;
+
+	pcar->tmRedBegin = get_timeval_by_date(
+			ntohs(p->year), ntohs(p->month), ntohs(p->day),
+			ntohs(p->hour), ntohs(p->minute), ntohs(p->second),
+			ntohs(p->msecond)
+			);
+
 	memcpy(pcar->vioType, p->vioType, sizeof(pcar->vioType) );
 	pcar->speed = ntohl(p->speed);
 	pcar->limitSpeed = ntohl(p->limitSpeed);
@@ -458,13 +464,9 @@ void backup_callback(CCar *pcar)
 	pret->detect = pcar->detect;
 	pret->isViolation = pcar->isViolation;
 
-	pret->year = 0;
-	pret->month = 0;
-	pret->day = 0;
-	pret->hour = 0;
-	pret->minute = 0;
-	pret->second = 0;
-	pret->msecond = 0;
+	get_date_by_timeval_net( pcar->tmRedBegin, &(pret->year), &(pret->month),
+			&(pret->day), &(pret->hour), &(pret->minute), &(pret->second),
+			&(pret->msecond) );
 
 	memcpy(pret->vioType, pcar->vioType, sizeof(pret->vioType) );
 	pret->speed = htonl(pcar->speed);

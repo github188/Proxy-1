@@ -53,6 +53,7 @@ int main(int argc, char* argv[])
 
 #ifdef CONFIG_MONITOR
 	if (pcfg->control.enable_monitor) {
+		printf("~~~~~~~~Start monitor mode...\n");
 		Kise::Monitor::SetModuleID(modID);
 		Kise::Monitor::MonitorLoop();
 	}
