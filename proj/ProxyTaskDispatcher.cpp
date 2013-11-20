@@ -26,10 +26,8 @@ int CProxyTaskDispatcher::Dispatch( CSession* psession, const char* pData, int d
 	if( ConfigLookup(con, &groupid, &side, &rule) ) {
 		const char *pret = NULL; int retsize = 0;
 		if(Convert(rule, pData, dataSize, 
-			pret, retsize, psession, con)) {
+			&pret, &retsize, psession, con)) {
 			SendResultToOtherSide(groupid, side, pret, retsize);
-			if( pret && pret != pData) 
-				delete [] pret; 
 		}
 	} else {
 		printf("Error: data from unconfiged session.\n");

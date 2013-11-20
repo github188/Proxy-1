@@ -3,7 +3,7 @@ SRCDIR = ..
 
 CXX = g++
 LINK = g++
-CXXFLAGS = -O2 -Wall #-DKISE_DEBUG
+CXXFLAGS = -g -Wall -DKISE_DEBUG
 LIBS = -lpthread 
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
@@ -19,22 +19,34 @@ OBJS = main.o config.o ConfFile.o \
 	   ProxyTaskDispatcher.o Log.o dir.o file.o \
 	   ReconnectThread.o Convert.o
 
-CONFIG_BACKUP ?= n
+CONFIG_BACKUP ?=n
 ifeq "$(CONFIG_BACKUP)" 'y'
 OBJS += $(BackupOBJS)
 LIBS += -lsqlite3
 CXXFLAGS += -DCONFIG_BACKUP
 endif
 
+CONFIG_MONITOR ?=n
 ifeq "$(CONFIG_MONITOR)" 'y'
 LIBS += -lKiseMonitor 
 CXXFLAGS += -DCONFIG_MONITOR
 endif
 
+#--------为了打字添加的依赖------
+CONFIG_PUTTEXT ?=y
+ifeq "$(CONFIG_PUTTEXT)" 'y'
+# TUBJPEGLIBS   = /opt/libjpeg-turbo-1.2.0/lib/libturbojpeg.a
+# LIBS          += -lKisePutText -L/usr/local/lib $(TUBJPEGLIBS)
+INCPATH += -I/home/song/libs/freetype/include -I/home/song/libs/turbojpeg/include -I/home/song/libs/freetype/include/freetype2/
+LIBS += /home/song/libs/turbojpeg/lib/libturbojpeg.a /home/song/libs/freetype/lib/libfreetype.a
+OBJS += puttext.o md5.o CodeConvert.o
+endif
+#--------END-----------
+
 CVT_RULE += -DCONVERT_ZJ
-CVT_RULE += -DCONVERT_SF
+# CVT_RULE += -DCONVERT_SF
 CXXFLAGS += $(CVT_RULE)
-OBJS += Convert_zj.o Convert_sf.o
+OBJS += Convert_zj.o # Convert_sf.o
 
 TARGET =	NetworkProxy
 
@@ -47,6 +59,15 @@ clean:
 
 
 ##  compile 
+CodeConvert.o : $(SRCDIR)/CodeConvert/CodeConvert.cpp $(SRCDIR)/CodeConvert/CodeConvert.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+md5.o : $(SRCDIR)/Tool/md5.cpp $(SRCDIR)/Tool/md5.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
+puttext.o : $(SRCDIR)/puttext/puttext.c $(SRCDIR)/puttext/puttext.h
+	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
+
 timeclass.o : $(SRCDIR)/Tool/timeclass.cpp $(SRCDIR)/Tool/timeclass.h
 	$(CXX) $(INCPATH) $(CXXFLAGS) -o $@ -c $<
 

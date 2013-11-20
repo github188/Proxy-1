@@ -51,9 +51,9 @@ static inline void SendOneStOut(const struct4sf &st)
 }
 
 static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item);
-static int DealWithSt4SF(struct4sf& st, const char *&ret, int &retsize);
+static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize);
 static int CreateResultPkg(const struct4sf& st1, const struct4sf& st2, 
-		const char *&ret, int &retsize);
+		const char **ret, int *retsize);
 static bool cmp2st(const struct4sf& st1, const struct4sf& st2);
 static void CreateCCarAndBackup(const char *data, int datasize);
 
@@ -70,7 +70,7 @@ static void CreateCCarAndBackup(const char *data, int datasize);
  * 在调用者处理完了之后应当释放ret
  */
 int Convert_sf(const char *srcdata, int size, 
-		const char *&ret, int &retsize, CSession *psession, struct TCPConn con)
+		const char **ret, int *retsize, CSession *psession, struct TCPConn con)
 {
 	int type = 0;
 	type = ntohl( *( (int*)srcdata ) ) & 0x0fffffff;
@@ -156,7 +156,7 @@ inline void LogCacheHistory(int flag, const struct4sf &st, const struct4sf *pcm)
  */
 static list<struct4sf> cache_pkgs_list; 
 static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
-static int DealWithSt4SF(struct4sf& st, const char *&ret, int &retsize)
+static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize)
 {
 	pthread_mutex_lock(&cache_pkgs_lock);
 
@@ -164,7 +164,7 @@ static int DealWithSt4SF(struct4sf& st, const char *&ret, int &retsize)
 			it != cache_pkgs_list.end(); it++) {
 		if( cmp2st( st, (*it) ) ) {
 			int r = CreateResultPkg(*it, st, ret, retsize); 
-			CreateCCarAndBackup(ret, retsize);
+			CreateCCarAndBackup(*ret, *retsize);
 #ifdef KISE_DEBUG
 			LogCacheHistory(1, (*it), &st);
 #endif
@@ -229,7 +229,7 @@ static bool cmp2st(const struct4sf& st1, const struct4sf& st2)
  * RETURN:  等于retsize
  */
 static int CreateResultPkg(
-		const struct4sf& st1, const struct4sf& st2, const char *&ret, int &retsize)
+		const struct4sf& st1, const struct4sf& st2, const char **ret, int *retsize)
 {
 	const struct4sf* pOverspeed = NULL;
 	const struct4sf* pCommon = NULL;
@@ -291,20 +291,21 @@ static int CreateResultPkg(
 	/* 视频数目 */
 	*( (char*)(finalData + finalLen - 1) ) = 0;
 
+#ifdef KISE_DEBUG
 	struct sf_img_data *veri = (struct sf_img_data*)(finalData + offset) ;
 	PDEBUG("---------->>>Final: %d-%d-%d : %d-%d-%d -- %d\n",
 			ntohs(veri->year), ntohs(veri->month), ntohs(veri->day), 
 			ntohs(veri->hour), ntohs(veri->minute), ntohs(veri->second), ntohs(veri->msecond) );
-
+#endif
 
 	/* 最后将图片数目加1 */
 	pf->imageNum = htons( ntohs(pf->imageNum) + 1 );
 
 	*( (int*)(finalData + 4) ) = htonl(finalLen -8); 
 	
-	ret = finalData;
-	retsize = finalLen;
-	return retsize;
+	*ret = finalData;
+	*retsize = finalLen;
+	return *retsize;
 
 }
 
