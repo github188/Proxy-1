@@ -42,13 +42,13 @@ const static size_t SF_PRO_SIZE = sizeof(SFPRO);
 
 struct sf_img_data {
 	short year;
-	short month;
+	short mon;
 	short day;
 	short hour;
-	short minute;
-	short second;
-	short msecond;
-	long length;
+	short min;
+	short sec;
+	short ms;
+	long imageLen;
 	char imgFirstByte; /* place holder */
 } __attribute__( ( packed, aligned(1) ) );
 

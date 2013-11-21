@@ -10,6 +10,7 @@
 
 #include <arpa/inet.h> // for htons
 #include <stdlib.h> // for abs
+#include <sys/time.h>
 
 static const int CAR_MESSAGE_TYPE = 1000;
 static const int ACK_MESSAGE_LEN = 64;
@@ -34,7 +35,7 @@ typedef struct pkg_info_and_data {
 class CProxyTaskDispatcher;
 extern CProxyTaskDispatcher *g_dispatcher;
 
-inline void SendOneStOut(struct TCPConn from, const char *data, int size) 
+inline void send_one_pkg(struct TCPConn from, const char *data, int size) 
 {
 	PDEBUG("Now should send an cached package (time out).\n");
 	if(g_dispatcher)
@@ -43,7 +44,7 @@ inline void SendOneStOut(struct TCPConn from, const char *data, int size)
 		PDEBUG("Error, send data but g_dispatcher is NULL");
 }
 
-inline void ResponsePackID(const char *data, CSession *psession)
+inline void response_packet_id(const char *data, CSession *psession)
 {
 	char pkg[73];
 	memset(pkg,0, 73);
@@ -75,11 +76,32 @@ inline bool cmp2pkg( const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2)
 	return false;
 }
 
+inline const char* uuid( const char* str)
+{
+	short space = 0;
+	int time = 0;
+	static char uuid[64];
+	memset(uuid,0,64);
+	for(unsigned i = 0; str[i] != 0; i++)
+		space += str[i];
+
+	struct timeval tv;
+	gettimeofday(&tv,NULL);
+	srandom((unsigned int)(tv.tv_sec + tv.tv_usec));
+	time = random();
+	const unsigned char* pTime = (const unsigned char*) (&time) ;
+	const unsigned char* pSpace = (const unsigned char*) (&space);
+	sprintf(uuid, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
+			pTime[0], pSpace[0], pTime[1], pTime[2], pSpace[1], pTime[3]);
+	return uuid;
+}
+
+
 #ifdef KISE_DEBUG
-/* LogCacheHistory 在调试时记录数据的前世今生
+/* 在调试时记录数据的前世今生
  * flag : 0-新增数据  1-因合并而提取 2-因过期而删除
  */
-inline void LogCacheHistory(int flag, const PKG_INFO_DATA *st, const PKG_INFO_DATA *pcm)
+inline void log_cache_history(int flag, const PKG_INFO_DATA *st, const PKG_INFO_DATA *pcm)
 {
 	// [CACHE_DEL, ITEM: overspeed=? speed=? timercv=? time=? ID=?]
 	std::string str;

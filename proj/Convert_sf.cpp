@@ -2,19 +2,28 @@
 #include "Convert.h"
 #include "car_info_cvt_common.h"
 #include "Convert_sf.h"
+#include "backup.h"
+
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
+
+#include "../include/img_endecode.h"
+#include "../puttext/puttext.h"
+#include "../config/ConfFile.h"
+#include "../Tool/md5.h"
+#include "../CodeConvert/CodeConvert.h"
+
 #include "../include/timewrap.h"
-#include "backup.h"
 
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <pthread.h>
 
-static bool CreatePKG_INFO_DATA(const char* pData, int dataSize, PKG_INFO_DATA& item);
-static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize);
-static int CreateResultPkg(const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2, 
+static bool create_pkg_info_sf(const char* pdata, int size, PKG_INFO_DATA *item);
+static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize);
+static int create_result_pkg_sf(const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, 
 		const char **ret, int *retsize);
+static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize);
 static void CreateCCarAndBackup(const char *data, int datasize);
 
 /**
@@ -25,9 +34,6 @@ static void CreateCCarAndBackup(const char *data, int datasize);
  * 4. 考虑备份，应该先回应数据来源一个包ID
  * 5. 特别的，如果是一个车辆信息回应包，一要注意删除本程序中的备份数据
  *    二要可能将这个ACK包回应给数据来源
- *
- * 如果返回大于0且 srcdata != ret，则在内部分配了存放新数据包的空间
- * 在调用者处理完了之后应当释放ret
  */
 int Convert_sf(const char *srcdata, int size, 
 		const char **ret, int *retsize, CSession *psession, struct TCPConn con)
@@ -35,6 +41,7 @@ int Convert_sf(const char *srcdata, int size,
 	int type = 0;
 	type = ntohl( *( (int*)srcdata ) ) & 0x0fffffff;
 	PDEBUG("In SF convert, type is: %d\n", type);
+
 	if( type != CAR_MESSAGE_TYPE ) {
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
@@ -46,25 +53,34 @@ int Convert_sf(const char *srcdata, int size,
 			else 
 				return 0;
 		} else {
-
 			SFPRO *p = (SFPRO *) srcdata;
 			int speed = 0, limitSpeed = 0;
 			speed = ntohl( p->speed );
 			limitSpeed = ntohl( p->limitSpeed );
+
+			int overspeed = ntohs( p->imageNum );
 			PDEBUG("In SF convert, speed = %d, limitSpeed = %d\n",
 					speed, limitSpeed);
-			if( speed <= limitSpeed - 2 ) { 
+			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) )
+				return 0;
+
+			if( overspeed == 1 && speed <= limitSpeed ) { 
 				/* 超速相机的speed值必然大于limitSpeed, 
 				 * 所以这个-2是针对速度在两边有误差的时候
 				 * 将卡口数据缓存的范围扩大一些 */
-				return Convert_empty(srcdata, size, ret, retsize);
+				return paint_and_pkg(srcdata, size, ret, retsize);
 			} else {
 				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
-				ResponsePackID( p->packetID, psession);
+				response_packet_id( p->packetID, psession);
 				PKG_INFO_DATA st; st.from = con;
 				st.speed = speed;
-				if( CreatePKG_INFO_DATA(srcdata, size, st) ) {
-					return DealWithSt4SF(st, ret, retsize);
+				if( create_pkg_info_sf(srcdata, size, &st) ) {
+					if( dealwith_pkg_sf(&st, ret, retsize) > 0 && *ret != NULL ) {
+						const char *ptemp = *ret;
+						paint_and_pkg(*ret, *retsize, ret, retsize);
+						delete ptemp;
+					}
+					return *retsize;
 				} 
 			}
 
@@ -72,8 +88,127 @@ int Convert_sf(const char *srcdata, int size,
 	}
 	return 0;
 }
+/*****打字需要的函数********/
+static int get_text_config(int camera, const char **machineID, const char **addr, const char **direction )
+{
+	const size_t local_size = 1024;
+	char file[local_size];
+	static char local_machineID[local_size];
+	static char local_addr[local_size];
+	static char local_direction[local_size];
 
-/* DealWithSt4SF : 处理超速的车辆信息
+	snprintf( file, local_size, "./common%d.ini", camera + 1);
+	PDEBUG("get_text_config, file = %s\n", file);
+	CConfFile cfg(file);
+	if( !cfg.getValue("Info","machineID",local_machineID, local_size) )
+		return -1;
+
+	if( !cfg.getValue("Info","monitorName",local_addr, local_size) ) 
+		return -1;
+
+	if( !cfg.getValue("Info","directionName",local_direction, local_size) ) 
+		return -1;
+
+	*machineID = local_machineID;
+	*addr = local_addr;
+	*direction = local_direction;
+	return 0;
+}
+
+static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize)
+{
+	static char *rgb_buffer = (char*) malloc(1024 * 1024 * 3 * 3); //300万像素
+	static char *jpg_buffer = (char*) malloc(1024 * 1024); // 1M
+	static char *pkg_buffer = (char*) malloc(1024 * 1024 * 2); // 2M
+
+	/* 数据包的内容： 包头部 + 图片数据 */
+	SFPRO *pprot = (SFPRO *) psrc;
+	memcpy(pkg_buffer, psrc, SF_PRO_SIZE); // 原来的头部
+
+	int offset_src = SF_PRO_SIZE;
+	int offset_pkg = SF_PRO_SIZE;
+
+	int i;
+
+	const char *machineID = NULL;
+	const char *addr = NULL; 
+	const char *direction = NULL;
+	int speed = ntohl(pprot->speed);
+	int limitSpeed = ntohl(pprot->limitSpeed);
+	// 从对应的配置文件里面读取地点、方向名称
+	if( get_text_config( ntohl(pprot->camera), &machineID, &addr, &direction ) ) {
+		PDEBUG("Get text config error.\n");
+	}
+
+	for(i = 0; i < ntohs(pprot->imageNum); i++ ) {
+
+		memcpy(pkg_buffer + offset_pkg, psrc + offset_src, SF_IMGI_SIZE);
+		SFIMG *pnew = (SFIMG *) (pkg_buffer + offset_pkg);
+		offset_pkg += SF_IMGI_SIZE;
+
+		SFIMG *pimg = (SFIMG *) (psrc + offset_src);
+		offset_src += ( SF_IMGI_SIZE + ntohl(pimg->imageLen) );
+
+		const char *pjpg = &(pimg->imgFirstByte); 
+
+		int width, height;
+		img_decode( (unsigned char*)rgb_buffer, &width, &height, 
+				(unsigned char*)pjpg, ntohl(pimg->imageLen) );
+
+		static char textout[2048] = {'\0'};
+		static wchar_t wcs[1024] = {'\0'};
+		snprintf( textout, 2048, "设备编号:%s", machineID?machineID:"未配置" );
+		CCodeConvert cvt; 
+		cvt.UTF8toUnicode(std::string(textout), wcs);
+		puttext(1, wcs, rgb_buffer, width, height);
+
+		snprintf( textout, 2048, "地点:%s 行驶方向:%s", addr?addr:"未配置",
+				direction?direction:"未配置" );
+		cvt.UTF8toUnicode(std::string(textout), wcs);
+		puttext(2, wcs, rgb_buffer, width, height);
+
+		snprintf( textout, 2048, "时间:%.2d/%.2d/%.2d  %.2d:%.2d:%.2d.%.3d", 
+				ntohs(pimg->year), ntohs(pimg->mon), ntohs(pimg->day),
+				ntohs(pimg->hour), ntohs(pimg->min), ntohs(pimg->sec),
+				ntohs(pimg->ms) );
+		cvt.UTF8toUnicode(std::string(textout), wcs);
+		puttext(3, wcs, rgb_buffer, width, height);
+
+		snprintf( textout, 2048, "车速:%dkm/h 限速:%dkm/h", speed, limitSpeed );
+		cvt.UTF8toUnicode(std::string(textout), wcs);
+		puttext(4, wcs, rgb_buffer, width, height);
+
+		snprintf( textout, 2048, "防伪码:%s", machineID?uuid(machineID):uuid("未配置") );
+		cvt.UTF8toUnicode(std::string(textout), wcs);
+		puttext(5, wcs, rgb_buffer, width, height);
+
+		unsigned long jpgsize = 0;
+		img_encode( (unsigned char*)rgb_buffer, width, height, 
+				(unsigned char*)jpg_buffer, 1024*1024, &jpgsize, 80);
+
+		MD5 md5;
+		md5.update( (unsigned char*)jpg_buffer, jpgsize);
+		md5.finalize();
+		md5.raw_digest( (unsigned char*)jpg_buffer + jpgsize);
+		jpgsize += 16;
+
+		memcpy(pkg_buffer + offset_pkg, jpg_buffer, jpgsize);
+		offset_pkg += jpgsize;
+		pnew->imageLen = htonl(jpgsize);
+	}
+
+	offset_pkg += 1; // 视频个数
+	*(pkg_buffer + offset_pkg) = 0;
+
+	SFPRO *pf = (SFPRO *) pkg_buffer;
+	pf->length = htonl(offset_pkg - 8);
+
+	*ret = pkg_buffer;
+	*retsize = offset_pkg;
+	return offset_pkg;
+}
+
+/* dealwith_pkg_sf: 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
  * 2. 如果匹配不上则将传入的包缓存起来
  * 3. 在函数结束前处理一次超时的数据, 
@@ -81,28 +216,28 @@ int Convert_sf(const char *srcdata, int size,
  */
 static list<PKG_INFO_DATA> cache_pkgs_list; 
 static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
-static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize)
+static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 {
 	pthread_mutex_lock(&cache_pkgs_lock);
 
 	for(list<PKG_INFO_DATA>::iterator it = cache_pkgs_list.begin(); 
 			it != cache_pkgs_list.end(); it++) {
-		if( cmp2pkg( st, (*it) ) ) {
-			int r = CreateResultPkg(*it, st, ret, retsize); 
+		if( cmp2pkg( *st, (*it) ) ) {
+			int r = create_result_pkg_sf( &(*it), st, ret, retsize); 
 			CreateCCarAndBackup(*ret, *retsize);
 #ifdef KISE_DEBUG
-			LogCacheHistory(1, (*it), &st);
+			log_cache_history(1, &(*it), st);
 #endif
 			delete [] (*it).data; 
 			it = cache_pkgs_list.erase(it);
-			delete [] st.data;
+			delete [] st->data;
 			pthread_mutex_unlock(&cache_pkgs_lock);
 			return r;
 		}
 	}
-	cache_pkgs_list.push_back(st);
+	cache_pkgs_list.push_back(*st);
 #ifdef KISE_DEBUG
-	LogCacheHistory(0, st, NULL);
+	log_cache_history(0, st, NULL);
 #endif
 
 	time_t now = time(NULL);
@@ -111,9 +246,22 @@ static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize)
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
 		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
 			CreateCCarAndBackup( (*it).data, (*it).len );
-			SendOneStOut( (*it).from, (*it).data, (*it).len );
+			const char *pkg; int pkgsize;
+
+			if(! (*it).overspeed ) {
+				SFPRO *p = (SFPRO *) (*it).data;
+				if( ntohl(p->speed) > ntohl(p->limitSpeed) ) {
+					PDEBUG("Here set speed to 39.\n");
+					p->speed = htonl(39);
+				}
+				paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
+				send_one_pkg( (*it).from, pkg, pkgsize );
+
+			} else {
+				// Log drop overspeed data
+			}
 #ifdef KISE_DEBUG
-			LogCacheHistory(2, (*it), NULL);
+			log_cache_history(2, &(*it), NULL);
 #endif
 			delete [] (*it).data;
 			it = cache_pkgs_list.erase(it);
@@ -125,50 +273,49 @@ static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize)
 	return 0;
 }
 
-/* CreateResultPkg: 封装匹配上的车辆信息成一个最终数据包
+/* create_result_pkg_sf: 封装匹配上的车辆信息成一个最终数据包
  * st1, st2 分别是匹配上的超速和治安卡口的数据
  * ret: 封装后的数据，内部动态分配的存储
  * retsize: ret中数据的长度
  * RETURN:  等于retsize
  */
-static int CreateResultPkg(
-		const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2, const char **ret, int *retsize)
+static int create_result_pkg_sf(
+		const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, const char **ret, int *retsize)
 {
 	const PKG_INFO_DATA* pOverspeed = NULL;
 	const PKG_INFO_DATA* pCommon = NULL;
-	if( st1.overspeed ) {
-		pOverspeed = &st1;
-		pCommon = &st2;
+	if( st1->overspeed ) {
+		pOverspeed = st1;
+		pCommon = st2;
 	} else {
-		pOverspeed = &st2;
-		pCommon = &st1;
+		pOverspeed = st2;
+		pCommon = st1;
 	}
 	
-	struct sf_protocol_data *po = (struct sf_protocol_data*)(pOverspeed->data);
-	struct sf_protocol_data *pc = (struct sf_protocol_data*)(pCommon->data);
-	struct sf_img_data *pcominfo = (struct sf_img_data*) ( 
-			pCommon->data + sizeof(struct sf_protocol_data) );
+	SFPRO *po = (SFPRO *)(pOverspeed->data);
+	SFPRO *pc = (SFPRO *)(pCommon->data);
+	SFIMG *pcominfo = (SFIMG *) (pCommon->data + SF_PRO_SIZE);
 	PDEBUG("--------->>>Common: %d-%d-%d : %d-%d-%d -- %d\n",
 			ntohs(pcominfo->year), ntohs(pcominfo->month), ntohs(pcominfo->day), 
 			ntohs(pcominfo->hour), ntohs(pcominfo->minute),ntohs(pcominfo->second), 
 			ntohs(pcominfo->msecond) );
 	
 	/* 最终数据 = 超速数据基本信息 + 超速图片信息 + 超速图片数据 + 卡口图片信息 + 卡口图片 */
-	int commonImgLen = ntohl( pcominfo->length );
+	int commonImgLen = ntohl( pcominfo->imageLen );
 	int finalLen = 0;
-	finalLen += sizeof(struct sf_protocol_data); // 超速基本信息长度
-	int offset = sizeof(struct sf_protocol_data); 
+	finalLen += SF_PRO_SIZE; // 超速基本信息长度
+	int offset = SF_PRO_SIZE; 
 	for( int i = 0; i < ntohs(po->imageNum); i++ ) {
-		struct sf_img_data *pi = (struct sf_img_data*)(pOverspeed->data + offset);
+		SFIMG *pi = (SFIMG *)(pOverspeed->data + offset);
 		PDEBUG("------>Image[%d] length = %d \n", i, ntohl(pi->length) );
 		PDEBUG("---------->>>Overspeed: %d-%d-%d : %d-%d-%d -- %d\n",
 				ntohs(pi->year), ntohs(pi->month), ntohs(pi->day), 
 				ntohs(pi->hour), ntohs(pi->minute), ntohs(pi->second), ntohs(pi->msecond) );
-		finalLen += sizeof(struct sf_img_data); // 超速图像信息长度
-		finalLen += ntohl(pi->length); // 超速图像数据长度
+		finalLen += SF_IMGI_SIZE; // 超速图像信息长度
+		finalLen += ntohl(pi->imageLen); // 超速图像数据长度
 		offset = finalLen;
 	}
-	finalLen += ( sizeof(struct sf_img_data) + commonImgLen ); //卡口图像信息及数据长度
+	finalLen += ( SF_IMGI_SIZE + commonImgLen ); //卡口图像信息及数据长度
 	finalLen += 1; // 视频数目
 
 	PDEBUG("Final sizeof result = %d\n", finalLen);
@@ -184,12 +331,11 @@ static int CreateResultPkg(
 	memcpy(finalData, pOverspeed->data, offset);
 
 	/* 覆盖车牌号码 */
-	struct sf_protocol_data *pf = (struct sf_protocol_data*)(finalData);
+	SFPRO *pf = (SFPRO *)(finalData);
 	memcpy( pf->plate, pc->plate, sizeof(pf->plate) );
 	PDEBUG("plate is: %s \n", pf->plate);
 	
-	memcpy(finalData + offset, (pCommon->data + sizeof(struct sf_protocol_data)), 
-			sizeof(struct sf_img_data) + commonImgLen);
+	memcpy(finalData + offset, (pCommon->data + SF_PRO_SIZE), SF_IMGI_SIZE + commonImgLen);
 
 	/* 视频数目 */
 	*( (char*)(finalData + finalLen - 1) ) = 0;
@@ -203,9 +349,7 @@ static int CreateResultPkg(
 
 	/* 最后将图片数目加1 */
 	pf->imageNum = htons( ntohs(pf->imageNum) + 1 );
-
 	*( (int*)(finalData + 4) ) = htonl(finalLen -8); 
-	
 	*ret = finalData;
 	*retsize = finalLen;
 	return *retsize;
@@ -216,64 +360,69 @@ static int CreateResultPkg(
  * 将原始数据拷贝了出来,在堆上分配了空间
  * 同时记录当前的时间作为收到数据包的时间
  */
-static bool CreatePKG_INFO_DATA(const char* pData, int dataSize, PKG_INFO_DATA& item)
+static bool create_pkg_info_sf(const char* pdata, int size, PKG_INFO_DATA *item)
 {
-	if( dataSize < (int)(sizeof(struct sf_protocol_data) + sizeof(struct sf_img_data) ) ) {
-		printf("Data can't convert ... len (%d) \n", dataSize);
+	if( size < (int) (SF_PRO_SIZE + SF_IMGI_SIZE) ) {
+		printf("Data can't convert ... len (%d) \n", size);
 		return false;
 	}
 
-	item.len = dataSize;  
-	item.data = new char[dataSize];
-	memcpy(item.data, pData, dataSize);
+	SFPRO *p = (SFPRO *)pdata;
 
-	struct sf_protocol_data *p = (struct sf_protocol_data *)pData;
-
-	item.direction = string( p->direction ); 
-	item.road = ntohl( p->road );
-	item.timercv = time(NULL);
+	item->len = size;  
+	item->data = new char[size];
+	memcpy(item->data, pdata, size);
+	item->direction = string( p->direction ); 
+	item->road = ntohl( p->road );
+	item->timercv = time(NULL);
 
 	int imgnum = ntohs( p->imageNum );
 	if( imgnum == 1 ) {
-		item.overspeed = false;
+		item->overspeed = false;
 	} else if( imgnum == 2) {	
-		item.overspeed = true;
+		item->overspeed = true;
 	} else {
-		printf("Error, CreatePKG_INFO_DATA, image number unexpect (%d)\n", imgnum);
-		delete [] item.data;
+		printf("Error, create_pkg_info_sf, image number unexpect (%d)\n", imgnum);
+		delete [] item->data;
 		return false;
 	}
 
 	/* 这里获取第一张图片的信息 */
-	struct sf_img_data *imginfo = 
-		(struct sf_img_data *)( pData + sizeof(struct sf_protocol_data) );
+	SFIMG *imginfo = (SFIMG *)( pdata + SF_PRO_SIZE);
 
 	struct tm pkgtm;
-	pkgtm.tm_sec = ntohs(imginfo->second);
-	pkgtm.tm_min = ntohs(imginfo->minute);
+	pkgtm.tm_sec = ntohs(imginfo->sec);
+	pkgtm.tm_min = ntohs(imginfo->min);
 	pkgtm.tm_hour = ntohs(imginfo->hour);
-	pkgtm.tm_mon = ntohs(imginfo->month) - 1;  // 0 - 11
+	pkgtm.tm_mon = ntohs(imginfo->mon) - 1;  // 0 - 11
 	pkgtm.tm_year = ntohs(imginfo->year) - 1900;
 	pkgtm.tm_mday = ntohs(imginfo->day);
 
 	PDEBUG("Create SF struct, time %d-%d-%d %d:%d:%d\n",
-			ntohs(imginfo->year), ntohs(imginfo->month), ntohs(imginfo->day), 
-			ntohs(imginfo->hour), ntohs(imginfo->minute), ntohs(imginfo->second) );
+			ntohs(imginfo->year), ntohs(imginfo->mon), ntohs(imginfo->day), 
+			ntohs(imginfo->hour), ntohs(imginfo->min), ntohs(imginfo->sec) );
 
-	item.time = mktime(&pkgtm);
+	item->time = mktime(&pkgtm);
 
 	return true;
 }
+
+
+/**********以下是与备份相关的函数*****************/
 
 /* 将网络数据包封装成CCar并进行备份 
  * 由于备份模块new并复制了CCar所以本类结束时将释放自己new的Car对象
  */
 static void CreateCCarAndBackup(const char* data, int datasize) {
+
 	if( !ConfigGet()->control.enable_backup )
 		return;
 #ifdef CONFIG_BACKUP
+	const char *pkg; int pkgsize;
+	paint_and_pkg(data, datasize, &pkg, &pkgsize);
+
 	CCar *pcar = new CCar;
-	struct sf_protocol_data *p = (struct sf_protocol_data *)data;
+	struct sf_protocol_data *p = (struct sf_protocol_data *) pkg;
 
 	pcar->packetID = std::string(p->packetID);
 	pcar->machineID = "";
@@ -307,24 +456,24 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 
 	int offset = sizeof(struct sf_protocol_data);
 	for(int i = 0; i < pcar->imageNum; i++) {
-		struct sf_img_data *pi = (struct sf_img_data *)(data + offset);
+		struct sf_img_data *pi = (struct sf_img_data *)(pkg + offset);
 		struct tm cartm;
-		cartm.tm_sec = ntohs(pi->second);
-		cartm.tm_min = ntohs(pi->minute);
+		cartm.tm_sec = ntohs(pi->sec);
+		cartm.tm_min = ntohs(pi->min);
 		cartm.tm_hour = ntohs(pi->hour);
-		cartm.tm_mon = ntohs(pi->month) - 1;  // 0 - 11
+		cartm.tm_mon = ntohs(pi->mon) - 1;  // 0 - 11
 		cartm.tm_year = ntohs(pi->year) - 1900;
 		cartm.tm_mday = ntohs(pi->day);
 		pcar->time[i].tv_sec = mktime( &cartm );
-		pcar->time[i].tv_usec = ntohs( pi->msecond ) * 1000;
-		pcar->imageLen[i] = ntohl(pi->length);
+		pcar->time[i].tv_usec = ntohs( pi->ms ) * 1000;
+		pcar->imageLen[i] = ntohl(pi->imageLen);
 
 		offset += sizeof(struct sf_img_data);
 
 		pcar->image[i] = new char[ pcar->imageLen[i] ];
-		memcpy( pcar->image[i], data + offset, pcar->imageLen[i] );
+		memcpy( pcar->image[i], pkg + offset, pcar->imageLen[i] );
 		
-		offset += ntohl(pi->length);
+		offset += ntohl(pi->imageLen);
 	}
 
 	pcar->videoNum = 0;
@@ -383,13 +532,13 @@ void backup_callback(CCar *pcar)
 		struct sf_img_data *pi = (struct sf_img_data*) (ret + offset) ;
 		struct tm *imgtm = gmtime( &(pcar->time[j].tv_sec) );
 		pi->year = (short) htons(imgtm->tm_year + 1900);
-		pi->month = (short) htons(imgtm->tm_mon + 1);
+		pi->mon = (short) htons(imgtm->tm_mon + 1);
 		pi->day = (short) htons(imgtm->tm_mday);
 		pi->hour = (short) htons(imgtm->tm_hour);
-		pi->minute = (short) htons(imgtm->tm_min);
-		pi->second = (short) htons(imgtm->tm_sec);
-		pi->msecond = (short) ( htons( (short)( (pcar->time[j].tv_usec) / 1000) ) );
-		pi->length = htonl( pcar->imageLen[j] );
+		pi->min = (short) htons(imgtm->tm_min);
+		pi->sec = (short) htons(imgtm->tm_sec);
+		pi->ms = (short) ( htons( (short)( (pcar->time[j].tv_usec) / 1000) ) );
+		pi->imageLen = htonl( pcar->imageLen[j] );
 
 		offset += sizeof(struct sf_img_data);
 

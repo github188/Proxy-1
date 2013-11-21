@@ -43,9 +43,9 @@ endif
 #--------END-----------
 
 CVT_RULE += -DCONVERT_ZJ
-# CVT_RULE += -DCONVERT_SF
+CVT_RULE += -DCONVERT_SF
 CXXFLAGS += $(CVT_RULE)
-OBJS += Convert_zj.o # Convert_sf.o
+OBJS += Convert_zj.o Convert_sf.o
 
 TARGET =	NetworkProxy
 

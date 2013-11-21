@@ -1,17 +1,15 @@
 
-/* 与中江协议高度耦合的代码
- */
-
 #include "Convert.h"
 #include "car_info_cvt_common.h"
 #include "Convert_zj.h"
+#include "backup.h"
 
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
+
 #include "../include/img_endecode.h"
 #include "../puttext/puttext.h"
 #include "../config/ConfFile.h"
-#include "backup.h"
 #include "../Tool/md5.h"
 #include "../CodeConvert/CodeConvert.h"
 
@@ -21,7 +19,7 @@
 
 static bool create_pkg_info(const char *pData, int dataSize, PKG_INFO_DATA *item);
 static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize);
-static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize);
+static int dealwith_pkg_zj(PKG_INFO_DATA *st, const char **ret, int *retsize);
 static int create_result_pkg(const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, 
 		const char **ret, int *retsize);
 
@@ -44,6 +42,7 @@ int Convert_zj(const char *srcdata, int size,
 	if( type != CAR_MESSAGE_TYPE) {
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
+
 		if( size < (int)ZJ_PRO_SIZE ) { 
 			PDEBUG("Here we get an ack, it's %s\n", srcdata+8);
 			if( ! backup_remove(srcdata + 8) )
@@ -61,20 +60,19 @@ int Convert_zj(const char *srcdata, int size,
 					speed, limitSpeed);
 			// 是超速但是速度大于100，不处理
 			// 此时卡口的会在缓存中等待，直到超时后被发送，发送时会修改其速度
-			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) {
+			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) 
 				return 0;
-			}
 
 			// 是卡口且没超速则直接发送了
 			if( overspeed == 0 && speed <= limitSpeed ) {
 				return paint_and_pkg(srcdata, size, ret, retsize);
 			} else {
 				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
-				ResponsePackID( ptr->packetID, psession);
+				response_packet_id( ptr->packetID, psession);
 				PKG_INFO_DATA st; st.from = con;
 				st.speed = speed;
 				if( create_pkg_info(srcdata, size, &st) ) {
-					if( dealwith_pkg(&st, ret, retsize) > 0 && *ret != NULL) {
+					if( dealwith_pkg_zj(&st, ret, retsize) > 0 && *ret != NULL) {
 						const char *ptemp = *ret;
 						paint_and_pkg(*ret, *retsize, ret, retsize);
 						delete ptemp;
@@ -88,7 +86,7 @@ int Convert_zj(const char *srcdata, int size,
 }
 
 /* 获取配置文件中关于设备编号、地点名称、方向名称的配置 */
-int get_text_config( int camera, 
+static int get_text_config( int camera, 
 		const char **machineID, const char **addr, const char **direction )
 {
 	const size_t local_size = 1024;
@@ -114,26 +112,6 @@ int get_text_config( int camera,
 	*direction = local_direction;
 	return 0;
 
-}
-
-static const char* uuid( const char* str)
-{
-	short space = 0;
-	int time = 0;
-	static char uuid[64];
-	memset(uuid,0,64);
-	for(unsigned i = 0; str[i] != 0; i++)
-		space += str[i];
-
-	struct timeval tv;
-	gettimeofday(&tv,NULL);
-	srandom((unsigned int)(tv.tv_sec + tv.tv_usec));
-	time = random();
-	const unsigned char* pTime = (const unsigned char*) (&time) ;
-	const unsigned char* pSpace = (const unsigned char*) (&space);
-	sprintf(uuid, "%.2X:%.2X:%.2X:%.2X:%.2X:%.2X\n",
-			pTime[0], pSpace[0], pTime[1], pTime[2], pSpace[1], pTime[3]);
-	return uuid;
 }
 
 /* 对网络数据中的图片进行打字，并将打完字的图片封装成新的网络数据包 
@@ -230,7 +208,7 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 }
 
 
-/* dealwith_pkg: 处理超速的车辆信息
+/* dealwith_pkg_zj: 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
  * 2. 如果匹配不上则将传入的包缓存起来
  * 3. 在函数结束前处理一次超时的数据, 
@@ -238,7 +216,7 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
  */
 static list<PKG_INFO_DATA> cache_pkgs_list; 
 static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
-static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize)
+static int dealwith_pkg_zj(PKG_INFO_DATA *st, const char **ret, int *retsize)
 {
 	pthread_mutex_lock(&cache_pkgs_lock);
 
@@ -248,7 +226,7 @@ static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize)
 			int r = create_result_pkg( &(*it), st, ret, retsize); 
 			// CreateCCarAndBackup(ret, retsize);
 #ifdef KISE_DEBUG
-			LogCacheHistory(1, &(*it), st);
+			log_cache_history(1, &(*it), st);
 #endif
 			delete [] (*it).data; 
 			it = cache_pkgs_list.erase(it);
@@ -259,7 +237,7 @@ static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize)
 	}
 	cache_pkgs_list.push_back(*st);
 #ifdef KISE_DEBUG
-	LogCacheHistory(0, st, NULL);
+	log_cache_history(0, st, NULL);
 #endif
 
 	time_t now = time(NULL);
@@ -280,11 +258,13 @@ static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize)
 				}
 
 				paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
-				SendOneStOut((*it).from, pkg, pkgsize);
+				send_one_pkg((*it).from, pkg, pkgsize);
+			} else {
+				// Log drop overspeed data
 			}
 
 #ifdef KISE_DEBUG
-			LogCacheHistory(2, &(*it), NULL);
+			log_cache_history(2, &(*it), NULL);
 #endif
 			delete [] (*it).data;
 			it = cache_pkgs_list.erase(it);
