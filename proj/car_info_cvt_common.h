@@ -12,6 +12,7 @@
 #include <stdlib.h> // for abs
 
 static const int CAR_MESSAGE_TYPE = 1000;
+static const int ACK_MESSAGE_LEN = 64;
 
 typedef struct pkg_info_and_data {
 	time_t timercv; // 接收到该包的时刻
@@ -74,5 +75,39 @@ inline bool cmp2pkg( const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2)
 	return false;
 }
 
-#endif 
+#ifdef KISE_DEBUG
+/* LogCacheHistory 在调试时记录数据的前世今生
+ * flag : 0-新增数据  1-因合并而提取 2-因过期而删除
+ */
+inline void LogCacheHistory(int flag, const PKG_INFO_DATA *st, const PKG_INFO_DATA *pcm)
+{
+	// [CACHE_DEL, ITEM: overspeed=? speed=? timercv=? time=? ID=?]
+	std::string str;
+	if(flag == 0)
+		str += "[CACHE_ADD,    ITEM, ";
+	else if(flag == 1)
+		str += "[CACHE_COMBINE ITEM, ";
+	else if(flag ==2)
+		str += "[CACHE_TIMEOUT ITEM, ";
+	else
+		str += "[CACHE_UNKNOWN ITEM, ";
+	char temp[1024]; memset(temp, 0, 1024);
+	sprintf(temp, "direction = %s, road = %d, overspeed = %d, speed = %d, timercv = %ld, time = %ld", 
+	st->direction.c_str(), st->road, st->overspeed?1:0, st->speed, st->timercv, st->time);
+	str += std::string(temp);
+	if(flag == 1 && pcm != NULL) {
+		sprintf(temp, ", combine: overspeed = %d, speed = %d, timercv = %ld, time = %ld",
+				pcm->overspeed?1:0, pcm->speed, pcm->timercv, pcm->time);
+		str += std::string(temp);
+	}
+	if( flag == 2 ) {
+		time_t t0 = time(NULL);
+		sprintf(temp, ", now = %ld, abs = %d", t0, abs( (int)(t0 - st->timercv)) );
+		str += std::string(temp);
+	}
+	fprintf(stderr, "%s\n", str.c_str());
+}
+#endif  // ifdef KISE_DEBUG
+
+#endif  // ifndef CAR_INFO_CVT_COMMON_H
 

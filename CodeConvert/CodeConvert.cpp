@@ -129,7 +129,7 @@ void CCodeConvert::CarPlatetoUnicode(const char* plate, string& strUnicodeCarPla
 		
 		//printf("-----------------------------------%04X\n", nUnicode);
 		memset(temp, 0, sizeof(temp));
-		sprintf(temp, "%d", nUnicode);
+		sprintf(temp, "%lu", nUnicode);
 		strUnicodeCarPlate += "&#";
 		strUnicodeCarPlate += temp;
 		strUnicodeCarPlate += ";";
@@ -146,7 +146,6 @@ void CCodeConvert::CarPlatetoUnicode(const char* plate, vector<wchar_t>& wUnicod
     wUnicode.clear();
 
     unsigned long nUnicode = 0;
-    char temp[32];
 
     //int np = 0;
     for (unsigned int i = 0; i < strlen(plate); i++)
@@ -252,7 +251,6 @@ int CCodeConvert::UTF8toUnicode(const string& strUTF8, string& strUnicode)
 	bool bHasInValidCode = false;
 	strUnicode.clear();
 
-	int nRet = 0;
 	string strTempUTF8 = strUTF8;
 	
 	for (unsigned int i=0; i<strTempUTF8.length(); i++)
@@ -315,7 +313,6 @@ int CCodeConvert::UTF8toUnicode(const string& strUTF8, wchar_t wUnicode[])
 
     bool bHasInValidCode = false;
 
-    int nRet = 0;
     string strTempUTF8 = strUTF8;
 
     int index = 0;
@@ -377,7 +374,6 @@ int CCodeConvert::UTF8toUnicode(const string& strUTF8, vector<wchar_t>& wUnicode
 
     bool bHasInValidCode = false;
 
-    int nRet = 0;
     string strTempUTF8 = strUTF8;
 
     //int index = 0;

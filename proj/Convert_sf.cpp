@@ -1,5 +1,6 @@
 
 #include "Convert.h"
+#include "car_info_cvt_common.h"
 #include "Convert_sf.h"
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
@@ -10,51 +11,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 
-extern CProxyTaskDispatcher *g_dispatcher;
-
-typedef struct {
-	int len;  	// data的长度
-	char* data; // 数据包的原始内容
-	std::string direction; // 方向信息
-	int road;       // 车辆信息包中的车道号
-	int speed;      // 速度
-	time_t timercv; // 接收到该包的时刻
-	time_t time;    // 该包中时间字段的值
-	bool overspeed; // 是否是超速的数据
-	
-	struct TCPConn from;
-} struct4sf;
-
-/* ResponsePackID: 确认收到数据,回应包ID给发送者
- * data: 数据包的原始数据 psession: 数据来源的会话 */
-static inline void ResponsePackID(const char *data, CSession *psession)
-{
-	struct sf_protocol_data *p = (struct sf_protocol_data*) data;
-	char pkg[73];
-	memset(pkg,0, 73);
-	*( (short*)(pkg + 2) ) = htons(1000);
-	*( (int *) (pkg + 4) ) = htonl(64);
-	memcpy(pkg+8, p->packetID, 64);
-	PDEBUG("We send an ack to source session, it's %s\n", pkg+8);
-	psession->Send( pkg, 72);
-}
-
-/* SendOneStOut: 将一个数据包发送出去
- * st: 记录了数据和相关信息的结构体 */
-static inline void SendOneStOut(const struct4sf &st) 
-{
-	PDEBUG("Now should send an cached package (time out).\n");
-	if(g_dispatcher)
-		g_dispatcher->SendResultToOtherSide(st.from, st.data, st.len);
-	else
-		PDEBUG("Error, send data but g_dispatcher is NULL");
-}
-
-static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item);
-static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize);
-static int CreateResultPkg(const struct4sf& st1, const struct4sf& st2, 
+static bool CreatePKG_INFO_DATA(const char* pData, int dataSize, PKG_INFO_DATA& item);
+static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize);
+static int CreateResultPkg(const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2, 
 		const char **ret, int *retsize);
-static bool cmp2st(const struct4sf& st1, const struct4sf& st2);
 static void CreateCCarAndBackup(const char *data, int datasize);
 
 /**
@@ -75,18 +35,19 @@ int Convert_sf(const char *srcdata, int size,
 	int type = 0;
 	type = ntohl( *( (int*)srcdata ) ) & 0x0fffffff;
 	PDEBUG("In SF convert, type is: %d\n", type);
-	if( type != 1000 ) {
+	if( type != CAR_MESSAGE_TYPE ) {
 		return Convert_empty(srcdata, size, ret, retsize);
 	} else {
-		if( size < (int)sizeof(struct sf_protocol_data) ) { 
+		/* 比协议结构体小，类型又是车辆信息的是ACK数据  */
+		if( size < (int) SF_PRO_SIZE ) { 
 			PDEBUG("Here we get an ack, it's %s\n", srcdata+8);
 			if( ! backup_remove(srcdata + 8) )
 				return Convert_empty(srcdata, size, ret, retsize);
 			else 
 				return 0;
 		} else {
-			struct sf_protocol_data *p;
-			p = (struct sf_protocol_data *) srcdata;
+
+			SFPRO *p = (SFPRO *) srcdata;
 			int speed = 0, limitSpeed = 0;
 			speed = ntohl( p->speed );
 			limitSpeed = ntohl( p->limitSpeed );
@@ -99,54 +60,18 @@ int Convert_sf(const char *srcdata, int size,
 				return Convert_empty(srcdata, size, ret, retsize);
 			} else {
 				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
-				ResponsePackID(srcdata, psession);
-				struct4sf st; st.from = con;
+				ResponsePackID( p->packetID, psession);
+				PKG_INFO_DATA st; st.from = con;
 				st.speed = speed;
-				if( Createstruct4sf(srcdata, size, st) ) {
+				if( CreatePKG_INFO_DATA(srcdata, size, st) ) {
 					return DealWithSt4SF(st, ret, retsize);
 				} 
 			}
+
 		}
 	}
 	return 0;
 }
-
-#ifdef KISE_DEBUG
-/* LogCacheHistory 在调试时记录数据的前世今生
- * flag : 0-新增数据  1-因合并而提取 2-因过期而删除
- */
-inline void LogCacheHistory(int flag, const struct4sf &st, const struct4sf *pcm)
-{
-	// [CACHE_DEL, ITEM: overspeed=? speed=? timercv=? time=? ID=?]
-	std::string str;
-	if(flag == 0)
-		str += "[CACHE_ADD,    ITEM, ";
-	else if(flag == 1)
-		str += "[CACHE_COMBINE ITEM, ";
-	else if(flag ==2)
-		str += "[CACHE_TIMEOUT ITEM, ";
-	else
-		str += "[CACHE_UNKNOWN ITEM, ";
-
-	char temp[1024]; memset(temp, 0, 1024);
-	struct sf_protocol_data *pt = (struct sf_protocol_data*) st.data;
-	sprintf(temp, "overspeed = %d, speed = %d, timercv = %ld, time = %ld, packetID=%s",
-		   st.overspeed?1:0, st.speed, st.timercv, st.time, pt->packetID);
-	str += std::string(temp);
-	if(flag == 1 && pcm != NULL) {
-		struct sf_protocol_data *pp = (struct sf_protocol_data*)(pcm->data);
-		sprintf(temp, ", combine: overspeed = %d, speed = %d, timercv = %ld, time = %ld, packetID=%s",
-				pcm->overspeed?1:0, pcm->speed, pcm->timercv, pcm->time, pp->packetID);
-		str += std::string(temp);
-	}
-	if( flag == 2 ) {
-		time_t t0 = time(NULL);
-		sprintf(temp, ", now = %ld, abs = %d", t0, abs( (int)(t0 - st.timercv)) );
-		str += std::string(temp);
-	}
-	fprintf(stderr, "%s\n", str.c_str());
-}
-#endif
 
 /* DealWithSt4SF : 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
@@ -154,15 +79,15 @@ inline void LogCacheHistory(int flag, const struct4sf &st, const struct4sf *pcm)
  * 3. 在函数结束前处理一次超时的数据, 
  *    将一条超时的数据返回给调用层用于发送
  */
-static list<struct4sf> cache_pkgs_list; 
+static list<PKG_INFO_DATA> cache_pkgs_list; 
 static pthread_mutex_t cache_pkgs_lock = PTHREAD_MUTEX_INITIALIZER;
-static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize)
+static int DealWithSt4SF(PKG_INFO_DATA& st, const char **ret, int *retsize)
 {
 	pthread_mutex_lock(&cache_pkgs_lock);
 
-	for(list<struct4sf>::iterator it = cache_pkgs_list.begin(); 
+	for(list<PKG_INFO_DATA>::iterator it = cache_pkgs_list.begin(); 
 			it != cache_pkgs_list.end(); it++) {
-		if( cmp2st( st, (*it) ) ) {
+		if( cmp2pkg( st, (*it) ) ) {
 			int r = CreateResultPkg(*it, st, ret, retsize); 
 			CreateCCarAndBackup(*ret, *retsize);
 #ifdef KISE_DEBUG
@@ -181,12 +106,12 @@ static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize)
 #endif
 
 	time_t now = time(NULL);
-	for(list<struct4sf>::iterator it = cache_pkgs_list.begin(); 
+	for(list<PKG_INFO_DATA>::iterator it = cache_pkgs_list.begin(); 
 			it != cache_pkgs_list.end(); it++) {
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
 		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
 			CreateCCarAndBackup( (*it).data, (*it).len );
-			SendOneStOut(*it);
+			SendOneStOut( (*it).from, (*it).data, (*it).len );
 #ifdef KISE_DEBUG
 			LogCacheHistory(2, (*it), NULL);
 #endif
@@ -200,28 +125,6 @@ static int DealWithSt4SF(struct4sf& st, const char **ret, int *retsize)
 	return 0;
 }
 
-
-/* cmp2st 比较两个结构提是否匹配
- * 匹配条件:
- *   1. 一个是超速一个是治安卡口 
- *   2. 方向相同， 速度与时间差小
- */
-static bool cmp2st(const struct4sf& st1, const struct4sf& st2)
-{
-	if( st1.overspeed != st2.overspeed ) {
-		if( st1.direction == st2.direction ) {
-			if(st1.road == st2.road) {
-				if( abs( (int)(st1.speed - st2.speed) ) < 5 ) {
-					if( abs( (int)(st1.time - st2.time) ) < 2 ) {
-						return true; 
-					}
-				}
-			}
-		}
-	}
-	return false;
-}
-
 /* CreateResultPkg: 封装匹配上的车辆信息成一个最终数据包
  * st1, st2 分别是匹配上的超速和治安卡口的数据
  * ret: 封装后的数据，内部动态分配的存储
@@ -229,10 +132,10 @@ static bool cmp2st(const struct4sf& st1, const struct4sf& st2)
  * RETURN:  等于retsize
  */
 static int CreateResultPkg(
-		const struct4sf& st1, const struct4sf& st2, const char **ret, int *retsize)
+		const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2, const char **ret, int *retsize)
 {
-	const struct4sf* pOverspeed = NULL;
-	const struct4sf* pCommon = NULL;
+	const PKG_INFO_DATA* pOverspeed = NULL;
+	const PKG_INFO_DATA* pCommon = NULL;
 	if( st1.overspeed ) {
 		pOverspeed = &st1;
 		pCommon = &st2;
@@ -313,7 +216,7 @@ static int CreateResultPkg(
  * 将原始数据拷贝了出来,在堆上分配了空间
  * 同时记录当前的时间作为收到数据包的时间
  */
-static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item)
+static bool CreatePKG_INFO_DATA(const char* pData, int dataSize, PKG_INFO_DATA& item)
 {
 	if( dataSize < (int)(sizeof(struct sf_protocol_data) + sizeof(struct sf_img_data) ) ) {
 		printf("Data can't convert ... len (%d) \n", dataSize);
@@ -336,7 +239,7 @@ static bool Createstruct4sf(const char* pData, int dataSize, struct4sf& item)
 	} else if( imgnum == 2) {	
 		item.overspeed = true;
 	} else {
-		printf("Error, Createstruct4sf, image number unexpect (%d)\n", imgnum);
+		printf("Error, CreatePKG_INFO_DATA, image number unexpect (%d)\n", imgnum);
 		delete [] item.data;
 		return false;
 	}

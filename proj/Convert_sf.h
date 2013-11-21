@@ -37,6 +37,9 @@ struct sf_protocol_data {
 	short imageNum;
 } __attribute__((packed,aligned(1)));
 
+typedef struct sf_protocol_data SFPRO;
+const static size_t SF_PRO_SIZE = sizeof(SFPRO);
+
 struct sf_img_data {
 	short year;
 	short month;
@@ -46,7 +49,13 @@ struct sf_img_data {
 	short second;
 	short msecond;
 	long length;
+	char imgFirstByte; /* place holder */
 } __attribute__( ( packed, aligned(1) ) );
+
+typedef struct sf_img_data SFIMG;
+
+const static size_t SF_IMGI_SIZE = sizeof(SFIMG) - 1;
+
 
 void backup_callback(CCar *pcar);
 

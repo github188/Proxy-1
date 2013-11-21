@@ -1,4 +1,8 @@
 
+/*
+ * 中江协议结构定义
+ */
+
 #ifndef CONVERT_ZJ_H
 #define CONVERT_ZJ_H
 

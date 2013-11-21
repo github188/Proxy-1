@@ -1,7 +1,11 @@
 
+/* 与中江协议高度耦合的代码
+ */
+
 #include "Convert.h"
 #include "car_info_cvt_common.h"
 #include "Convert_zj.h"
+
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
 #include "../include/img_endecode.h"
@@ -17,7 +21,6 @@
 
 static bool create_pkg_info(const char *pData, int dataSize, PKG_INFO_DATA *item);
 static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize);
-
 static int dealwith_pkg(PKG_INFO_DATA *st, const char **ret, int *retsize);
 static int create_result_pkg(const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, 
 		const char **ret, int *retsize);
@@ -226,39 +229,6 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 	return offset_pkg;
 }
 
-#ifdef KISE_DEBUG
-/* LogCacheHistory 在调试时记录数据的前世今生
- * flag : 0-新增数据  1-因合并而提取 2-因过期而删除
- */
-inline void LogCacheHistory(int flag, const PKG_INFO_DATA *st, const PKG_INFO_DATA *pcm)
-{
-	// [CACHE_DEL, ITEM: overspeed=? speed=? timercv=? time=? ID=?]
-	std::string str;
-	if(flag == 0)
-		str += "[CACHE_ADD,    ITEM, ";
-	else if(flag == 1)
-		str += "[CACHE_COMBINE ITEM, ";
-	else if(flag ==2)
-		str += "[CACHE_TIMEOUT ITEM, ";
-	else
-		str += "[CACHE_UNKNOWN ITEM, ";
-	char temp[1024]; memset(temp, 0, 1024);
-	sprintf(temp, "direction = %s, road = %d, overspeed = %d, speed = %d, timercv = %ld, time = %ld, packID=%s", 
-	st->direction.c_str(), st->road, st->overspeed?1:0, st->speed, st->timercv, st->time, st->data+112);
-	str += std::string(temp);
-	if(flag == 1 && pcm != NULL) {
-		sprintf(temp, ", combine: overspeed = %d, speed = %d, timercv = %ld, time = %ld, packID=%s",
-				pcm->overspeed?1:0, pcm->speed, pcm->timercv, pcm->time, pcm->data+112);
-		str += std::string(temp);
-	}
-	if( flag == 2 ) {
-		time_t t0 = time(NULL);
-		sprintf(temp, ", now = %ld, abs = %d", t0, abs( (int)(t0 - st->timercv)) );
-		str += std::string(temp);
-	}
-	fprintf(stderr, "%s\n", str.c_str());
-}
-#endif
 
 /* dealwith_pkg: 处理超速的车辆信息
  * 1. 与该函数中已经缓存的数据匹配，如果匹配上则合并新的包
