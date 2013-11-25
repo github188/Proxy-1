@@ -60,8 +60,10 @@ int Convert_zj(const char *srcdata, int size,
 					speed, limitSpeed);
 			// 是超速但是速度大于100，不处理
 			// 此时卡口的会在缓存中等待，直到超时后被发送，发送时会修改其速度
-			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) 
+			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) {
+				response_packet_id(ptr->packetID, psession);
 				return 0;
+			}
 
 			// 是卡口且没超速则直接发送了
 			if( overspeed == 0 && speed <= limitSpeed ) {

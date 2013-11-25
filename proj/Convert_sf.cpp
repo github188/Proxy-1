@@ -61,26 +61,32 @@ int Convert_sf(const char *srcdata, int size,
 			int overspeed = ntohs( p->imageNum );
 			PDEBUG("In SF convert, speed = %d, limitSpeed = %d\n",
 					speed, limitSpeed);
-			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) )
+			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) {
+				response_packet_id( p->packetID, psession );
 				return 0;
+			}
 
 			if( overspeed == 1 && speed <= limitSpeed ) { 
 				/* 超速相机的speed值必然大于limitSpeed, 
 				 * 所以这个-2是针对速度在两边有误差的时候
 				 * 将卡口数据缓存的范围扩大一些 */
-				return paint_and_pkg(srcdata, size, ret, retsize);
+				//PAINT return paint_and_pkg(srcdata, size, ret, retsize);
+				return Convert_empty(srcdata, size, ret, retsize);
 			} else {
 				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
 				response_packet_id( p->packetID, psession);
 				PKG_INFO_DATA st; st.from = con;
 				st.speed = speed;
 				if( create_pkg_info_sf(srcdata, size, &st) ) {
+					/* PAINT
 					if( dealwith_pkg_sf(&st, ret, retsize) > 0 && *ret != NULL ) {
 						const char *ptemp = *ret;
 						paint_and_pkg(*ret, *retsize, ret, retsize);
 						delete ptemp;
 					}
 					return *retsize;
+					*/
+					return dealwith_pkg_sf(&st, ret, retsize);
 				} 
 			}
 
@@ -246,7 +252,7 @@ static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
 		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
 			CreateCCarAndBackup( (*it).data, (*it).len );
-			const char *pkg; int pkgsize;
+			//PAINT const char *pkg; int pkgsize;
 
 			if(! (*it).overspeed ) {
 				SFPRO *p = (SFPRO *) (*it).data;
@@ -254,8 +260,8 @@ static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 					PDEBUG("Here set speed to 39.\n");
 					p->speed = htonl(39);
 				}
-				paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
-				send_one_pkg( (*it).from, pkg, pkgsize );
+				//PAINT paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
+				send_one_pkg( (*it).from, (*it).data, (*it).len );
 
 			} else {
 				// Log drop overspeed data
@@ -282,6 +288,10 @@ static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 static int create_result_pkg_sf(
 		const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, const char **ret, int *retsize)
 {
+	static const int finalDataSize = 1024*1024*2;
+	static char *finalData = (char *) malloc(finalDataSize);
+	int finalLen = 0;
+
 	const PKG_INFO_DATA* pOverspeed = NULL;
 	const PKG_INFO_DATA* pCommon = NULL;
 	if( st1->overspeed ) {
@@ -296,21 +306,20 @@ static int create_result_pkg_sf(
 	SFPRO *pc = (SFPRO *)(pCommon->data);
 	SFIMG *pcominfo = (SFIMG *) (pCommon->data + SF_PRO_SIZE);
 	PDEBUG("--------->>>Common: %d-%d-%d : %d-%d-%d -- %d\n",
-			ntohs(pcominfo->year), ntohs(pcominfo->month), ntohs(pcominfo->day), 
-			ntohs(pcominfo->hour), ntohs(pcominfo->minute),ntohs(pcominfo->second), 
-			ntohs(pcominfo->msecond) );
+			ntohs(pcominfo->year), ntohs(pcominfo->mon), ntohs(pcominfo->day), 
+			ntohs(pcominfo->hour), ntohs(pcominfo->min),ntohs(pcominfo->sec), 
+			ntohs(pcominfo->ms) );
 	
 	/* 最终数据 = 超速数据基本信息 + 超速图片信息 + 超速图片数据 + 卡口图片信息 + 卡口图片 */
 	int commonImgLen = ntohl( pcominfo->imageLen );
-	int finalLen = 0;
 	finalLen += SF_PRO_SIZE; // 超速基本信息长度
 	int offset = SF_PRO_SIZE; 
 	for( int i = 0; i < ntohs(po->imageNum); i++ ) {
 		SFIMG *pi = (SFIMG *)(pOverspeed->data + offset);
-		PDEBUG("------>Image[%d] length = %d \n", i, ntohl(pi->length) );
+		PDEBUG("------>Image[%d] length = %d \n", i, ntohl(pi->imageLen) );
 		PDEBUG("---------->>>Overspeed: %d-%d-%d : %d-%d-%d -- %d\n",
-				ntohs(pi->year), ntohs(pi->month), ntohs(pi->day), 
-				ntohs(pi->hour), ntohs(pi->minute), ntohs(pi->second), ntohs(pi->msecond) );
+				ntohs(pi->year), ntohs(pi->mon), ntohs(pi->day), 
+				ntohs(pi->hour), ntohs(pi->min), ntohs(pi->sec), ntohs(pi->ms) );
 		finalLen += SF_IMGI_SIZE; // 超速图像信息长度
 		finalLen += ntohl(pi->imageLen); // 超速图像数据长度
 		offset = finalLen;
@@ -320,7 +329,7 @@ static int create_result_pkg_sf(
 
 	PDEBUG("Final sizeof result = %d\n", finalLen);
 
-	char *finalData = new char[finalLen];
+	// char *finalData = new char[finalLen];
 	if(finalData == NULL) {
 		printf("Memory not enough for result packet.\n");
 		return 0;
@@ -328,13 +337,15 @@ static int create_result_pkg_sf(
 
 	PDEBUG("sizeof(sf_pro) = %u, sizeof(sf_img) = %u, offset = %u\n",
 			sizeof(struct sf_protocol_data), sizeof(sf_img_data), offset );
+	assert(offset <= finalDataSize);
 	memcpy(finalData, pOverspeed->data, offset);
 
 	/* 覆盖车牌号码 */
 	SFPRO *pf = (SFPRO *)(finalData);
 	memcpy( pf->plate, pc->plate, sizeof(pf->plate) );
 	PDEBUG("plate is: %s \n", pf->plate);
-	
+
+	assert( (int)(offset + SF_IMGI_SIZE + commonImgLen) < finalDataSize);
 	memcpy(finalData + offset, (pCommon->data + SF_PRO_SIZE), SF_IMGI_SIZE + commonImgLen);
 
 	/* 视频数目 */
@@ -343,8 +354,8 @@ static int create_result_pkg_sf(
 #ifdef KISE_DEBUG
 	struct sf_img_data *veri = (struct sf_img_data*)(finalData + offset) ;
 	PDEBUG("---------->>>Final: %d-%d-%d : %d-%d-%d -- %d\n",
-			ntohs(veri->year), ntohs(veri->month), ntohs(veri->day), 
-			ntohs(veri->hour), ntohs(veri->minute), ntohs(veri->second), ntohs(veri->msecond) );
+			ntohs(veri->year), ntohs(veri->mon), ntohs(veri->day), 
+			ntohs(veri->hour), ntohs(veri->min), ntohs(veri->sec), ntohs(veri->ms) );
 #endif
 
 	/* 最后将图片数目加1 */
@@ -418,8 +429,9 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 	if( !ConfigGet()->control.enable_backup )
 		return;
 #ifdef CONFIG_BACKUP
-	const char *pkg; int pkgsize;
-	paint_and_pkg(data, datasize, &pkg, &pkgsize);
+	//PAINT
+	const char *pkg = data; // int pkgsize = datasize;
+	//PAINT paint_and_pkg(data, datasize, &pkg, &pkgsize);
 
 	CCar *pcar = new CCar;
 	struct sf_protocol_data *p = (struct sf_protocol_data *) pkg;

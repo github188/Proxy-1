@@ -3,7 +3,7 @@ SRCDIR = ..
 
 CXX = g++
 LINK = g++
-CXXFLAGS = -O2 -Wall #-DKISE_DEBUG
+CXXFLAGS = -O2 -Wall -DKISE_DEBUG
 LIBS = -lpthread 
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
