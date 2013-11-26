@@ -61,7 +61,7 @@ int Convert_sf(const char *srcdata, int size,
 			int overspeed = ntohs( p->imageNum );
 			PDEBUG("In SF convert, speed = %d, limitSpeed = %d\n",
 					speed, limitSpeed);
-			if(overspeed == 2 && (speed >= 100 || speed <= limitSpeed) ) {
+			if(overspeed == 2 && (speed >= 150 || speed <= limitSpeed) ) {
 				response_packet_id( p->packetID, psession );
 				return 0;
 			}
