@@ -30,7 +30,7 @@ inline void get_date_by_timeval_net(struct timeval val, short *yy, short *mm,
 		short *dd, short *hh, short *min, short *sec, short *ms)
 {
 	struct tm *temp;
-	temp = gmtime( &(val.tv_sec) );
+	temp = localtime( &(val.tv_sec) );
 
 	*yy =htons( (short) temp->tm_year + 1900 );
 	*mm =htons( (short) temp->tm_mon + 1 );

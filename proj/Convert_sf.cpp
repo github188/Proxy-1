@@ -7,17 +7,22 @@
 #include "ProxyTaskDispatcher.h"
 #include "../include/pdebug.h"
 
+#ifdef CONFIG_PUTTEXT
+
 #include "../include/img_endecode.h"
 #include "../puttext/puttext.h"
 #include "../config/ConfFile.h"
 #include "../Tool/md5.h"
 #include "../CodeConvert/CodeConvert.h"
 
+#endif
+
 #include "../include/timewrap.h"
 
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <assert.h>
 
 static bool create_pkg_info_sf(const char* pdata, int size, PKG_INFO_DATA *item);
 static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize);
@@ -97,6 +102,7 @@ int Convert_sf(const char *srcdata, int size,
 /*****打字需要的函数********/
 static int get_text_config(int camera, const char **machineID, const char **addr, const char **direction )
 {
+#ifdef CONFIG_PUTTEXT
 	const size_t local_size = 1024;
 	char file[local_size];
 	static char local_machineID[local_size];
@@ -119,10 +125,14 @@ static int get_text_config(int camera, const char **machineID, const char **addr
 	*addr = local_addr;
 	*direction = local_direction;
 	return 0;
+#else
+	return -1;
+#endif
 }
 
 static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize)
 {
+#ifdef CONFIG_PUTTEXT
 	static char *rgb_buffer = (char*) malloc(1024 * 1024 * 3 * 3); //300万像素
 	static char *jpg_buffer = (char*) malloc(1024 * 1024); // 1M
 	static char *pkg_buffer = (char*) malloc(1024 * 1024 * 2); // 2M
@@ -212,6 +222,9 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 	*ret = pkg_buffer;
 	*retsize = offset_pkg;
 	return offset_pkg;
+#else 
+	return 0;
+#endif
 }
 
 /* dealwith_pkg_sf: 处理超速的车辆信息
@@ -255,11 +268,13 @@ static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 			//PAINT const char *pkg; int pkgsize;
 
 			if(! (*it).overspeed ) {
+				/*
 				SFPRO *p = (SFPRO *) (*it).data;
 				if( ntohl(p->speed) > ntohl(p->limitSpeed) ) {
 					PDEBUG("Here set speed to 39.\n");
 					p->speed = htonl(39);
 				}
+				*/
 				//PAINT paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
 				send_one_pkg( (*it).from, (*it).data, (*it).len );
 
@@ -334,9 +349,6 @@ static int create_result_pkg_sf(
 		printf("Memory not enough for result packet.\n");
 		return 0;
 	}
-
-	PDEBUG("sizeof(sf_pro) = %u, sizeof(sf_img) = %u, offset = %u\n",
-			sizeof(struct sf_protocol_data), sizeof(sf_img_data), offset );
 	assert(offset <= finalDataSize);
 	memcpy(finalData, pOverspeed->data, offset);
 
@@ -466,7 +478,7 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 	pcar->limitSpeed = ntohl(p->limitSpeed);
 	pcar->imageNum = ntohs(p->imageNum);
 
-	int offset = sizeof(struct sf_protocol_data);
+	int offset = SF_PRO_SIZE;
 	for(int i = 0; i < pcar->imageNum; i++) {
 		struct sf_img_data *pi = (struct sf_img_data *)(pkg + offset);
 		struct tm cartm;
@@ -480,7 +492,7 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 		pcar->time[i].tv_usec = ntohs( pi->ms ) * 1000;
 		pcar->imageLen[i] = ntohl(pi->imageLen);
 
-		offset += sizeof(struct sf_img_data);
+		offset += SF_IMGI_SIZE;
 
 		pcar->image[i] = new char[ pcar->imageLen[i] ];
 		memcpy( pcar->image[i], pkg + offset, pcar->imageLen[i] );
@@ -502,9 +514,9 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 void backup_callback(CCar *pcar) 
 {
 	PDEBUG(" ~~~~~> In backup call back.\n");
-	int length = sizeof(struct sf_protocol_data);
+	int length = SF_PRO_SIZE;
 	for(int i = 0; i < pcar->imageNum; i++) {
-		length += sizeof(struct sf_img_data);
+		length += SF_IMGI_SIZE;
 		length += pcar->imageLen[i];
 	}
 	length += 1;
@@ -533,16 +545,19 @@ void backup_callback(CCar *pcar)
 			&(pret->day), &(pret->hour), &(pret->minute), &(pret->second),
 			&(pret->msecond) );
 
+	PDEBUG("~~~~~~~~~~~~msecond = %d\n", ntohs(pret->msecond) );
+	assert( ntohs(pret->msecond) >=0 && ntohs(pret->msecond) < 1000 );
+
 	memcpy(pret->vioType, pcar->vioType, sizeof(pret->vioType) );
 	pret->speed = htonl(pcar->speed);
 	pret->limitSpeed = htonl(pcar->limitSpeed);
 	strncpy( pret->packetID, pcar->packetID.c_str(), sizeof(pret->packetID) );
 	pret->imageNum = htons(pcar->imageNum);
 
-	int offset = sizeof(struct sf_protocol_data);
+	int offset = SF_PRO_SIZE;
 	for(int j = 0; j < pcar->imageNum; j++) {
 		struct sf_img_data *pi = (struct sf_img_data*) (ret + offset) ;
-		struct tm *imgtm = gmtime( &(pcar->time[j].tv_sec) );
+		struct tm *imgtm = localtime( &(pcar->time[j].tv_sec) );
 		pi->year = (short) htons(imgtm->tm_year + 1900);
 		pi->mon = (short) htons(imgtm->tm_mon + 1);
 		pi->day = (short) htons(imgtm->tm_mday);
@@ -550,16 +565,20 @@ void backup_callback(CCar *pcar)
 		pi->min = (short) htons(imgtm->tm_min);
 		pi->sec = (short) htons(imgtm->tm_sec);
 		pi->ms = (short) ( htons( (short)( (pcar->time[j].tv_usec) / 1000) ) );
+		
+		PDEBUG("~~~~~~~~~image msecond = %d\n", ntohs(pi->ms) );
+		assert( ntohs(pi->ms) >=0 && ntohs(pi->ms) < 1000 );
+		
 		pi->imageLen = htonl( pcar->imageLen[j] );
 
-		offset += sizeof(struct sf_img_data);
+		offset += SF_IMGI_SIZE;
 
 		memcpy( ret + offset, pcar->image[j], pcar->imageLen[j] );
 		
 		offset += pcar->imageLen[j];
 	}
 
-	*( (char *)(ret - 1) ) = 0;
+	*( (char *)(ret + offset) ) = 0;
 
 	g_dispatcher->SendResultToOtherSide(
 			ConfigGet()->backup->backup_group_id, 

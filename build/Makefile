@@ -3,7 +3,7 @@ SRCDIR = ..
 
 CXX = g++
 LINK = g++
-CXXFLAGS = -g -Wall -DKISE_DEBUG
+CXXFLAGS = -o2 -Wall #-DKISE_DEBUG
 LIBS = -lpthread 
 INCPATH  = -I$(SRCDIR) -I$(SRCDIR)/include
 
@@ -33,7 +33,7 @@ CXXFLAGS += -DCONFIG_MONITOR
 endif
 
 #--------为了打字添加的依赖------
-CONFIG_PUTTEXT ?=y
+CONFIG_PUTTEXT ?=n
 ifeq "$(CONFIG_PUTTEXT)" 'y'
 # TUBJPEGLIBS   = /opt/libjpeg-turbo-1.2.0/lib/libturbojpeg.a
 # LIBS          += -lKisePutText -L/usr/local/lib $(TUBJPEGLIBS)
@@ -43,10 +43,10 @@ OBJS += puttext.o md5.o CodeConvert.o
 endif
 #--------END-----------
 
-CVT_RULE += -DCONVERT_ZJ
+# CVT_RULE += -DCONVERT_ZJ
 CVT_RULE += -DCONVERT_SF
 CXXFLAGS += $(CVT_RULE)
-OBJS += Convert_zj.o  Convert_sf.o
+OBJS += Convert_sf.o #Convert_zj.o  
 
 TARGET =	NetworkProxy
 
