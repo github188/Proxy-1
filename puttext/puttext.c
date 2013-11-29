@@ -7,7 +7,7 @@
 #include <locale.h>
 
 static text_set local_set = {
-	32, 0, 20, "/usr/local/bin/simsun.ttc", 50, 50,
+	32, 2, 20, "/usr/local/bin/simsun.ttc", 50, 50,
 	{(char)0xFF, (char)0x00, (char)0x00, (char)0x00} };
 
 static FT_Library g_lib;
@@ -73,7 +73,7 @@ void puttext( int line, const wchar_t *text, char *img, int width, int height)
 				if( slot->bitmap.buffer[off] & (0xC0 >> (j%8)) ) {
 					
 					c = local_set.x + j + index * (local_set.font_size + local_set.word_space);
-					c -= count_half * (local_set.font_size + local_set.word_space) / 2;
+					c -= count_half * (local_set.font_size ) / 2; // + local_set.word_space) / 2;
 					r = local_set.y + i - top + 
 						(line - 1) * (local_set.font_size + local_set.line_space);
 

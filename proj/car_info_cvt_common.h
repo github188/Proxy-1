@@ -65,8 +65,8 @@ inline bool cmp2pkg( const PKG_INFO_DATA& st1, const PKG_INFO_DATA& st2)
 	if( st1.overspeed != st2.overspeed ) {
 		if( st1.direction == st2.direction ) {
 			if(st1.road == st2.road ) {
-				if( st1.speed == st2.speed ) {
-	//			if( abs( (int)(st1.speed - st2.speed) ) < 5 ) {
+	//			if( st1.speed == st2.speed ) {
+				if( abs( (int)(st1.speed - st2.speed) ) < 2 ) {
 					if( abs( (int)(st1.time - st2.time) ) <= 2 ) {
 						return true; 
 					}

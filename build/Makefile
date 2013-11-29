@@ -40,6 +40,7 @@ ifeq "$(CONFIG_PUTTEXT)" 'y'
 INCPATH += -I/home/song/libs/freetype/include -I/home/song/libs/turbojpeg/include -I/home/song/libs/freetype/include/freetype2/
 LIBS += /home/song/libs/turbojpeg/lib/libturbojpeg.a /home/song/libs/freetype/lib/libfreetype.a
 OBJS += puttext.o md5.o CodeConvert.o
+CXXFLAGS += -DCONFIG_PUTTEXT
 endif
 #--------END-----------
 

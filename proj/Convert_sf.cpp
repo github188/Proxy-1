@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <assert.h>
-
+#include <vector>
 static bool create_pkg_info_sf(const char* pdata, int size, PKG_INFO_DATA *item);
 static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize);
 static int create_result_pkg_sf(const PKG_INFO_DATA *st1, const PKG_INFO_DATA *st2, 
@@ -75,23 +75,20 @@ int Convert_sf(const char *srcdata, int size,
 				/* 超速相机的speed值必然大于limitSpeed, 
 				 * 所以这个-2是针对速度在两边有误差的时候
 				 * 将卡口数据缓存的范围扩大一些 */
-				//PAINT return paint_and_pkg(srcdata, size, ret, retsize);
-				return Convert_empty(srcdata, size, ret, retsize);
+				return paint_and_pkg(srcdata, size, ret, retsize);
+				// return Convert_empty(srcdata, size, ret, retsize);
 			} else {
 				/* 从这里开始数据包被代理接管了，回复ACK给卡口程序 */
 				response_packet_id( p->packetID, psession);
 				PKG_INFO_DATA st; st.from = con;
 				st.speed = speed;
 				if( create_pkg_info_sf(srcdata, size, &st) ) {
-					/* PAINT
+					// PAINT
 					if( dealwith_pkg_sf(&st, ret, retsize) > 0 && *ret != NULL ) {
-						const char *ptemp = *ret;
 						paint_and_pkg(*ret, *retsize, ret, retsize);
-						delete ptemp;
 					}
 					return *retsize;
-					*/
-					return dealwith_pkg_sf(&st, ret, retsize);
+					// return dealwith_pkg_sf(&st, ret, retsize);
 				} 
 			}
 
@@ -130,6 +127,12 @@ static int get_text_config(int camera, const char **machineID, const char **addr
 #endif
 }
 
+#define ST_PLATE_Blue 0
+#define ST_PLATE_Black 1
+#define ST_PLATE_Yellow 2
+#define ST_PLATE_White 3
+#define ST_PLATE_Other 4
+
 static int paint_and_pkg(const char *psrc, int size, const char **ret, int *retsize)
 {
 #ifdef CONFIG_PUTTEXT
@@ -154,6 +157,7 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 	// 从对应的配置文件里面读取地点、方向名称
 	if( get_text_config( ntohl(pprot->camera), &machineID, &addr, &direction ) ) {
 		PDEBUG("Get text config error.\n");
+		exit(0);
 	}
 
 	for(i = 0; i < ntohs(pprot->imageNum); i++ ) {
@@ -173,30 +177,82 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 
 		static char textout[2048] = {'\0'};
 		static wchar_t wcs[1024] = {'\0'};
-		snprintf( textout, 2048, "设备编号:%s", machineID?machineID:"未配置" );
 		CCodeConvert cvt; 
+		int line_index = 1;
+
+		snprintf( textout, 2048, "设备编号:%s", machineID?machineID:"未配置" );
 		cvt.UTF8toUnicode(std::string(textout), wcs);
-		puttext(1, wcs, rgb_buffer, width, height);
+		puttext(line_index++, wcs, rgb_buffer, width, height);
 
 		snprintf( textout, 2048, "地点:%s 行驶方向:%s", addr?addr:"未配置",
 				direction?direction:"未配置" );
 		cvt.UTF8toUnicode(std::string(textout), wcs);
-		puttext(2, wcs, rgb_buffer, width, height);
+		puttext(line_index++, wcs, rgb_buffer, width, height);
 
 		snprintf( textout, 2048, "时间:%.2d/%.2d/%.2d  %.2d:%.2d:%.2d.%.3d", 
 				ntohs(pimg->year), ntohs(pimg->mon), ntohs(pimg->day),
 				ntohs(pimg->hour), ntohs(pimg->min), ntohs(pimg->sec),
 				ntohs(pimg->ms) );
 		cvt.UTF8toUnicode(std::string(textout), wcs);
-		puttext(3, wcs, rgb_buffer, width, height);
+		puttext(line_index++, wcs, rgb_buffer, width, height);
+		
+		// 为卡口相机打印车牌号码
+		// 注意，在匹配完成的3张图片中，卡口图片必须位于最后
+		// 下面打印防伪码时也一样遵循这个前提
+		if( ntohs(pprot->imageNum) == 1 || i == 2 ) {
+			short pcolor = ntohs(pprot->plateColor);
+			const wchar_t *color_str = NULL;
+			switch( pcolor ) {
+				case ST_PLATE_Blue:
+					color_str = L"蓝牌";
+					break;
+				case ST_PLATE_Black:
+					color_str = L"黑牌";
+					break;
+				case ST_PLATE_Yellow:
+					color_str = L"黄牌";
+					break;
+				case ST_PLATE_White:
+					color_str = L"白牌";
+					break;
+				default:
+					color_str = L"";
+					break;
+			}
+			if(pprot->plate[0] == '\0')
+				color_str = L"";
+
+			wchar_t plate_temp[128];
+			wchar_t cao[128];
+			memset(plate_temp, 0, sizeof(plate_temp) );
+			memset(cao, 0, sizeof(cao) );
+
+			std::vector<wchar_t> plate_str;
+			cvt.CarPlatetoUnicode(pprot->plate, plate_str);
+			unsigned int ix = 0;
+			while(ix < plate_str.size() && plate_str[ix] != '\0') {
+				cao[ix] = plate_str[ix];
+				ix++;
+			}
+
+			wcscat(plate_temp, L"车牌:");
+			wcscat( plate_temp, cao );
+			wcscat(plate_temp, L" ");
+			wcscat(plate_temp, color_str);
+
+			puttext(line_index++, plate_temp, rgb_buffer, width, height);
+		}
 
 		snprintf( textout, 2048, "车速:%dkm/h 限速:%dkm/h", speed, limitSpeed );
 		cvt.UTF8toUnicode(std::string(textout), wcs);
-		puttext(4, wcs, rgb_buffer, width, height);
+		puttext(line_index++, wcs, rgb_buffer, width, height);
 
-		snprintf( textout, 2048, "防伪码:%s", machineID?uuid(machineID):uuid("未配置") );
-		cvt.UTF8toUnicode(std::string(textout), wcs);
-		puttext(5, wcs, rgb_buffer, width, height);
+		// 为超速相机打印防伪码
+		if( ntohs(pprot->imageNum) == 3 ) {
+			snprintf( textout, 2048, "防伪码:%s", machineID?uuid(machineID):uuid("未配置") );
+			cvt.UTF8toUnicode(std::string(textout), wcs);
+			puttext(line_index++, wcs, rgb_buffer, width, height);
+		}
 
 		unsigned long jpgsize = 0;
 		img_encode( (unsigned char*)rgb_buffer, width, height, 
@@ -213,8 +269,8 @@ static int paint_and_pkg(const char *psrc, int size, const char **ret, int *rets
 		pnew->imageLen = htonl(jpgsize);
 	}
 
-	offset_pkg += 1; // 视频个数
 	*(pkg_buffer + offset_pkg) = 0;
+	offset_pkg += 1; // 视频个数
 
 	SFPRO *pf = (SFPRO *) pkg_buffer;
 	pf->length = htonl(offset_pkg - 8);
@@ -265,18 +321,17 @@ static int dealwith_pkg_sf(PKG_INFO_DATA *st, const char **ret, int *retsize)
 		PDEBUG("now(%ld), timercv(%ld) \n",now, (*it).timercv );
 		if( abs( (int)(now - (*it).timercv) ) >= ConfigGet()->control.cache_live )  {
 			CreateCCarAndBackup( (*it).data, (*it).len );
-			//PAINT const char *pkg; int pkgsize;
+			const char *pkg; int pkgsize;
 
 			if(! (*it).overspeed ) {
-				/*
 				SFPRO *p = (SFPRO *) (*it).data;
 				if( ntohl(p->speed) > ntohl(p->limitSpeed) ) {
 					PDEBUG("Here set speed to 39.\n");
 					p->speed = htonl(39);
 				}
-				*/
-				//PAINT paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
-				send_one_pkg( (*it).from, (*it).data, (*it).len );
+				//PAINT 
+				paint_and_pkg( (*it).data, (*it).len, &pkg, &pkgsize );
+				send_one_pkg( (*it).from, pkg, pkgsize );
 
 			} else {
 				// Log drop overspeed data
@@ -442,13 +497,16 @@ static void CreateCCarAndBackup(const char* data, int datasize) {
 		return;
 #ifdef CONFIG_BACKUP
 	//PAINT
-	const char *pkg = data; // int pkgsize = datasize;
-	//PAINT paint_and_pkg(data, datasize, &pkg, &pkgsize);
+	const char *pkg = NULL; int pkgsize = datasize;
+	//PAINT 
+	paint_and_pkg(data, datasize, &pkg, &pkgsize);
 
 	CCar *pcar = new CCar;
 	struct sf_protocol_data *p = (struct sf_protocol_data *) pkg;
 
+	PDEBUG("packet id === %s\n", p->packetID);
 	pcar->packetID = std::string(p->packetID);
+	assert(pcar->packetID != "");
 	pcar->machineID = "";
 	pcar->monitorID = std::string(p->monitorID);
 	pcar->direction = std::string(p->direction);
@@ -552,6 +610,9 @@ void backup_callback(CCar *pcar)
 	pret->speed = htonl(pcar->speed);
 	pret->limitSpeed = htonl(pcar->limitSpeed);
 	strncpy( pret->packetID, pcar->packetID.c_str(), sizeof(pret->packetID) );
+	PDEBUG("~~~~~~~~~~~packet id = %s\n", pret->packetID);
+	assert( pret->packetID[0] != '\0' );
+
 	pret->imageNum = htons(pcar->imageNum);
 
 	int offset = SF_PRO_SIZE;

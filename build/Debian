@@ -39,6 +39,7 @@ LIBS  += /opt/libjpeg-turbo-1.2.0/lib/libturbojpeg.a /opt/freetype-2.4.4/lib/lib
 INCPATH += -I/opt/freetype-2.4.4/include -I/opt/libjpeg-turbo-1.2.0/include -I/opt/freetype-2.4.4/include/freetype2/
 # LIBS += /home/song/libs/turbojpeg/lib/libturbojpeg.a /home/song/libs/freetype/lib/libfreetype.a
 OBJS += puttext.o md5.o CodeConvert.o
+CXXFLAGS += -DCONFIG_PUTTEXT
 endif
 #--------END-----------
 
